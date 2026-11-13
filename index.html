@@ -272,7 +272,8 @@ details.adv[open] summary { margin-bottom: 8px; }
 .login-card .hint.warn { color: var(--bad); }
 .login-sep { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; }
 .login-sep::before, .login-sep::after { content: ""; flex: 1; height: 1px; background: var(--line); }
-#loginForm { display: flex; flex-direction: column; gap: 10px; }
+#loginForm, .login-verif { display: flex; flex-direction: column; gap: 10px; }
+#lgModo { align-self: center; }
 .chk { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); }
 .acessos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .acessos li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 10px; background: var(--surface-2); border-radius: 8px; font-size: 13px; overflow-wrap: anywhere; }
@@ -310,8 +311,15 @@ details.adv[open] summary { margin-bottom: 8px; }
     <form id="loginForm" novalidate>
       <div class="field"><label for="lgEmail">E-mail</label><input id="lgEmail" type="email" autocomplete="username"></div>
       <div class="field"><label for="lgSenha">Senha</label><input id="lgSenha" type="password" autocomplete="current-password"></div>
+      <div class="field" id="lgSenha2Box" hidden><label for="lgSenha2">Repita a senha</label><input id="lgSenha2" type="password" autocomplete="new-password"></div>
+      <p class="hint" id="lgSenhaHint" hidden>Mínimo de 6 caracteres. Use o mesmo e-mail que o responsável liberou.</p>
       <div class="row"><button type="submit" class="btn" id="lgEntrar" style="flex:1">Entrar</button><button type="button" class="ghost" id="lgReset">Esqueci a senha</button></div>
+      <button type="button" class="ghost" id="lgModo">Primeiro acesso: criar senha</button>
     </form>
+    <div class="login-verif" id="lgVerif" hidden>
+      <button type="button" class="primary" id="lgJaConfirmei">Já confirmei, entrar</button>
+      <div class="row"><button type="button" class="btn" id="lgReenviar" style="flex:1">Reenviar link</button><button type="button" class="ghost" id="lgOutra">Usar outra conta</button></div>
+    </div>
   </div>
 </div>
 
@@ -1726,7 +1734,26 @@ function showLogin(msg, warn) {
   S.breaks = []; renderAll();
   const m = $('#loginMsg'); m.textContent = msg || 'Use a conta que foi liberada para ver e marcar os rompimentos.'; m.className = 'hint' + (warn ? ' warn' : '');
   $('#login').hidden = false; $('#sairBtn').hidden = !warn; $('#acessoBox').hidden = true;
+  $('#lgVerif').hidden = true; $('#loginForm').hidden = false; $('#googleBtn').hidden = false; $('.login-sep').hidden = false;
   setChip('Não conectado', 'local');
+}
+function showVerificar(email) {
+  stopSubs(); S.breaks = []; renderAll();
+  const m = $('#loginMsg');
+  m.textContent = `Falta confirmar o e-mail ${email}. Abra a mensagem que enviamos (veja também a caixa de spam), toque no link e depois volte aqui.`;
+  m.className = 'hint';
+  $('#login').hidden = false; $('#lgVerif').hidden = false;
+  $('#loginForm').hidden = true; $('#googleBtn').hidden = true; $('.login-sep').hidden = true;
+  $('#sairBtn').hidden = true; $('#acessoBox').hidden = true;
+  setChip('Confirmar e-mail', 'local');
+}
+let criando = false;
+function setCriar(on) {
+  criando = on;
+  $('#lgSenha2Box').hidden = !on; $('#lgSenhaHint').hidden = !on; $('#lgReset').hidden = on;
+  $('#lgEntrar').textContent = on ? 'Criar senha' : 'Entrar';
+  $('#lgModo').textContent = on ? 'Já tenho senha: entrar' : 'Primeiro acesso: criar senha';
+  $('#lgSenha').autocomplete = on ? 'new-password' : 'current-password';
 }
 function setupPwa() {
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW', e));
@@ -1772,11 +1799,44 @@ async function initFirebase() {
       else if (e && e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') toast('Não foi possível entrar com Google (' + (e.code || 'erro') + ').');
     }
   });
+  auth.languageCode = 'pt-BR';
+  const voltar = { url: location.origin + location.pathname };
+  $('#lgModo').addEventListener('click', () => setCriar(!criando));
   $('#loginForm').addEventListener('submit', async e => {
     e.preventDefault();
-    try { await auth.signInWithEmailAndPassword($('#lgEmail').value.trim(), $('#lgSenha').value); }
-    catch (err) { toast(err && /wrong-password|invalid-credential|user-not-found|invalid-login/.test(err.code || '') ? 'E-mail ou senha incorretos.' : 'Não foi possível entrar (' + ((err && err.code) || 'erro') + ').'); }
+    const em = $('#lgEmail').value.trim(), s1 = $('#lgSenha').value;
+    if (!em) { toast('Digite seu e-mail.'); $('#lgEmail').focus(); return; }
+    if (criando) {
+      if (s1.length < 6) { toast('A senha precisa ter pelo menos 6 caracteres.'); return; }
+      if (s1 !== $('#lgSenha2').value) { toast('As duas senhas não estão iguais.'); return; }
+      try {
+        const cred = await auth.createUserWithEmailAndPassword(em, s1);
+        await cred.user.sendEmailVerification(voltar);
+        $('#lgSenha').value = $('#lgSenha2').value = ''; setCriar(false);
+      } catch (err) {
+        const c = (err && err.code) || '';
+        if (c === 'auth/email-already-in-use') { setCriar(false); toast('Esse e-mail já tem senha. Entre com ela, ou use “Esqueci a senha”. Se for conta Google, use “Entrar com Google”.'); }
+        else if (c === 'auth/invalid-email') toast('E-mail inválido.');
+        else if (c === 'auth/weak-password') toast('Senha fraca. Use pelo menos 6 caracteres.');
+        else toast('Não foi possível criar a senha (' + (c || 'erro') + ').');
+      }
+      return;
+    }
+    try { await auth.signInWithEmailAndPassword(em, s1); }
+    catch (err) { toast(err && /wrong-password|invalid-credential|user-not-found|invalid-login/.test(err.code || '') ? 'E-mail ou senha incorretos. No primeiro acesso, toque em “Primeiro acesso: criar senha”.' : 'Não foi possível entrar (' + ((err && err.code) || 'erro') + ').'); }
   });
+  $('#lgJaConfirmei').addEventListener('click', async () => {
+    const u = auth.currentUser; if (!u) { showLogin(); return; }
+    try { await u.reload(); } catch (_) {}
+    if (auth.currentUser.emailVerified) { await auth.currentUser.getIdToken(true); startSession(auth.currentUser); }
+    else toast('Ainda não aparece confirmado. Toque no link do e-mail e tente de novo.');
+  });
+  $('#lgReenviar').addEventListener('click', async () => {
+    const u = auth.currentUser; if (!u) return;
+    try { await u.sendEmailVerification(voltar); toast('Link reenviado para ' + u.email + '.'); }
+    catch (err) { toast((err && err.code) === 'auth/too-many-requests' ? 'Muitos envios seguidos. Espere alguns minutos.' : 'Não foi possível reenviar agora.'); }
+  });
+  $('#lgOutra').addEventListener('click', () => auth.signOut());
   $('#lgReset').addEventListener('click', async () => {
     const em = $('#lgEmail').value.trim(); if (!em) { toast('Digite seu e-mail primeiro.'); $('#lgEmail').focus(); return; }
     try { await auth.sendPasswordResetEmail(em); toast('Se esse e-mail tiver conta, chega um link para criar nova senha.'); } catch (_) { toast('Não foi possível enviar o e-mail agora.'); }
@@ -1786,6 +1846,8 @@ async function initFirebase() {
 }
 async function startSession(u) {
   const fs = S.api.fs, email = (u.email || '').toLowerCase();
+  // Conta com senha só entra depois de confirmar o e-mail (contas Google já vêm confirmadas).
+  if (!u.emailVerified) { showVerificar(email); return; }
   S.userId = u.uid; S.userEmail = email; S.isAdmin = false;
   try {
     // Só quem tem acesso consegue ler a própria entrada. O responsável (definido nas regras do Firebase)
