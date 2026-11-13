@@ -279,7 +279,8 @@ details.adv[open] summary { margin-bottom: 8px; }
 .acessos li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 10px; background: var(--surface-2); border-radius: 8px; font-size: 13px; overflow-wrap: anywhere; }
 .acessos small { color: var(--muted); }
 .acessos li.pedido { background: var(--accent-soft); flex-wrap: wrap; }
-.acessos li .row { flex: none; }
+.acessos li .row { flex: none; flex-wrap: wrap; }
+.acessos li { flex-wrap: wrap; }
 .toast { position: fixed; z-index: 3000; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%) translateY(20px); opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-weight: 500; box-shadow: var(--shadow); max-width: calc(100% - 32px); text-align: center; }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 </style>
@@ -475,9 +476,9 @@ details.adv[open] summary { margin-bottom: 8px; }
       <div id="acessoBox" class="tabpanel" hidden>
         <h2 class="section-title">Quem pode entrar</h2>
         <div class="card">
-          <p class="hint">Libere o e-mail da pessoa. Ela entra no site com a conta Google desse e-mail.</p>
+          <p class="hint">Não precisa liberar antes: mande o link, a pessoa entra (com Google ou criando senha) e o pedido aparece aqui para você aprovar. <b>Editor</b> tem acesso igual ao seu: marca, edita, troca o mapa e aprova pessoas.</p>
           <div class="row"><input id="novoEmail" type="email" placeholder="email@exemplo.com" aria-label="E-mail a liberar"><button type="button" class="btn" id="addAcesso">Liberar</button></div>
-          <label class="chk"><input type="checkbox" id="novoAdmin"> Também pode trocar o mapa base e liberar outras pessoas</label>
+          <label class="chk"><input type="checkbox" id="novoAdmin"> Como editor (marca e edita, acesso igual ao seu)</label>
           <ul class="acessos" id="acessos"></ul>
         </div>
       </div>
@@ -1739,14 +1740,18 @@ function showLogin(msg, warn) {
   $('#lgVerif').hidden = true; $('#loginForm').hidden = false; $('#googleBtn').hidden = false; $('.login-sep').hidden = false;
   setChip('Não conectado', 'local');
 }
-function showVerificar(email) {
+function showVerificar(email, verificado) {
   stopSubs(); S.breaks = []; renderAll();
   const m = $('#loginMsg');
-  m.innerHTML = `Falta um passo para <b>${esc(email)}</b>. Tem dois jeitos:<br>
+  m.innerHTML = verificado
+    ? `Seu pedido de acesso para <b>${esc(email)}</b> foi enviado ao responsável. Quando ele aprovar, toque no botão abaixo.`
+    : `Falta um passo para <b>${esc(email)}</b>. Tem dois jeitos:<br>
     <b>1.</b> Abrir o e-mail de confirmação que enviamos e tocar no link. No Hotmail/Outlook ele costuma cair no <b>Lixo Eletrônico</b>; procure por “rompimentos”.<br>
     <b>2.</b> Ou pedir ao responsável para <b>aprovar</b> seu acesso no app (o pedido já foi enviado para ele).<br>
     Depois, toque no botão abaixo.`;
   m.className = 'hint';
+  $('#lgJaConfirmei').textContent = verificado ? 'Já fui aprovado, entrar' : 'Já confirmei ou fui aprovado, entrar';
+  $('#lgReenviar').hidden = !!verificado;
   $('#login').hidden = false; $('#lgVerif').hidden = false;
   $('#loginForm').hidden = true; $('#googleBtn').hidden = true; $('.login-sep').hidden = true;
   $('#sairBtn').hidden = true; $('#acessoBox').hidden = true;
@@ -1862,15 +1867,13 @@ async function startSession(u) {
     if (d.exists) S.isAdmin = d.data().admin === true;
     else { await ref.set({ admin: true, liberadoEm: new Date().toISOString() }); S.isAdmin = true; }
   } catch (_) {
-    if (!u.emailVerified) {
-      // registra o pedido para o responsável aprovar
-      fs.collection('pedidos').doc(u.uid).set({ email, pedidoEm: new Date().toISOString() }).catch(() => {});
-      showVerificar(email);
-      if (S.tentouEntrar) toast('Ainda não foi confirmado nem aprovado.');
-      S.tentouEntrar = false;
-      return;
-    }
-    showLogin(`A conta ${email || '(sem e-mail)'} ainda não foi liberada. Peça ao responsável para liberar esse e-mail e depois entre de novo.`, true); return;
+    if (!email) { showLogin('Essa conta não tem e-mail. Entre com outra conta.', true); return; }
+    // Sem acesso ainda: registra o pedido para o responsável aprovar (vale para Google e para e-mail/senha)
+    fs.collection('pedidos').doc(u.uid).set({ email, pedidoEm: new Date().toISOString(), google: !!u.emailVerified }).catch(() => {});
+    showVerificar(email, u.emailVerified);
+    if (S.tentouEntrar) toast(u.emailVerified ? 'Ainda não foi aprovado.' : 'Ainda não foi confirmado nem aprovado.');
+    S.tentouEntrar = false;
+    return;
   }
   S.tentouEntrar = false;
   $('#login').hidden = true; $('#sairBtn').hidden = false;
@@ -1924,11 +1927,11 @@ function renderAcessos() {
   });
   const rowsP = pedidos.map(p => {
     const lib = lista.some(x => x.email === p.email);
-    return `<li class="pedido"><span><b>${esc(p.email)}</b> <small>· pediu acesso${lib ? '' : ' (e-mail ainda não liberado)'}</small></span><span class="row"><button type="button" class="btn sm" data-aprovar="${esc(p.uid)}">Aprovar</button><button type="button" class="btn sm danger" data-recusar="${esc(p.uid)}">Recusar</button></span></li>`;
+    return `<li class="pedido"><span><b>${esc(p.email)}</b> <small>· pediu acesso${p.google ? ' (Google)' : ''}${lib ? '' : ''}</small></span><span class="row"><button type="button" class="btn sm" data-aprovar="${esc(p.uid)}">Aprovar só consulta</button><button type="button" class="btn sm" data-aprovar="${esc(p.uid)}" data-editor="1">Aprovar como editor</button><button type="button" class="btn sm danger" data-recusar="${esc(p.uid)}">Recusar</button></span></li>`;
   });
-  const rows = lista.slice().sort((a, b) => a.email.localeCompare(b.email)).map(p => {
+  const rows = lista.slice().sort((a, b) => (b.admin === true) - (a.admin === true) || a.email.localeCompare(b.email)).map(p => {
     const eu = p.email === S.userEmail;
-    return `<li><span>${esc(p.email)} <small>${eu ? '· você' : ''}${p.admin ? ' · pode administrar' : ''}${p.uid ? ' · aprovado' : ''}</small></span>${eu ? '' : `<button type="button" class="btn sm danger" data-rm="${esc(p.email)}">Remover</button>`}</li>`;
+    return `<li><span>${esc(p.email)} <small>${eu ? '· você' : ''}${p.admin ? ' · <b>editor</b> (marca e edita)' : ' · só consulta'}</small></span>${eu ? '' : `<span class="row"><button type="button" class="btn sm" data-editor-toggle="${esc(p.email)}">${p.admin ? 'Tirar edição' : 'Dar edição'}</button><button type="button" class="btn sm danger" data-rm="${esc(p.email)}">Remover</button></span>`}</li>`;
   });
   ul.innerHTML = rowsP.join('') + rows.join('');
   const n = pedidos.length; const b = $('#badgeBase'); if (b) b.textContent = n ? String(n) : '';
@@ -1945,12 +1948,19 @@ $('#acessos').addEventListener('click', async e => {
     const fs = S.api.fs, p = (S.pedidos || []).find(x => x.uid === (ap || rc).dataset[ap ? 'aprovar' : 'recusar']); if (!p) return;
     try {
       if (ap) {
-        const atual = (S.acessos || []).find(x => x.email === p.email);
-        await fs.collection('permitidos').doc(p.email).set({ admin: atual ? atual.admin === true : false, uid: p.uid, aprovadoPor: S.userEmail, aprovadoEm: new Date().toISOString() }, { merge: true });
-        toast('Acesso aprovado para ' + p.email + '. A pessoa já pode entrar.');
+        const editor = ap.dataset.editor === '1';
+        await fs.collection('permitidos').doc(p.email).set({ admin: editor, uid: p.uid, aprovadoPor: S.userEmail, aprovadoEm: new Date().toISOString() }, { merge: true });
+        toast(`Acesso aprovado para ${p.email} ${editor ? 'como editor' : '(só consulta)'}. A pessoa já pode entrar.`);
       } else toast('Pedido recusado.');
       await fs.collection('pedidos').doc(p.uid).delete();
     } catch (err) { toast('Não foi possível concluir (' + ((err && err.code) || 'erro') + ').'); }
+    return;
+  }
+  const tg = e.target.closest('[data-editor-toggle]');
+  if (tg) {
+    const em = tg.dataset.editorToggle, atual = (S.acessos || []).find(x => x.email === em); if (!atual) return;
+    try { await S.api.fs.collection('permitidos').doc(em).update({ admin: !(atual.admin === true) }); toast(atual.admin ? `${em} agora só consulta.` : `${em} agora pode marcar e editar.`); }
+    catch (err) { toast('Não foi possível alterar (' + ((err && err.code) || 'erro') + ').'); }
     return;
   }
   const btn = e.target.closest('[data-rm]'); if (!btn) return;
