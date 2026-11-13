@@ -127,7 +127,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   .mapbox { order: 2; height: auto; min-height: 0; }
 }
 
-.tabs { position: sticky; top: 0; z-index: 5; display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 10px 0; background: var(--bg); }
+.tabs { position: sticky; top: 0; z-index: 5; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; padding: 10px 0; background: var(--bg); }
 .tabs button { border: 1px solid var(--line); background: var(--surface); padding: 9px 6px; border-radius: 8px; font-weight: 600; cursor: pointer; color: var(--muted); display: inline-flex; justify-content: center; align-items: center; gap: 6px; }
 .tabs button[aria-selected="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 .badge { font-family: var(--f-mono); font-size: 11px; padding: 0 6px; border-radius: 999px; background: var(--bad); color: #fff; }
@@ -198,6 +198,11 @@ details.adv[open] summary { margin-bottom: 8px; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
 .seg button { border: 0; background: transparent; padding: 7px 12px; cursor: pointer; font-weight: 600; font-size: 13px; color: var(--muted); }
 .seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.modo-seg { display: grid; grid-template-columns: repeat(4, 1fr); }
+.modo-seg button { padding: 9px 4px; font-size: 12.5px; }
+@media (max-width: 380px) { .modo-seg { grid-template-columns: repeat(2, 1fr); } }
+.ponto-box { border: 1px solid var(--line); background: var(--surface); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.ponto-box > div { display: flex; flex-direction: column; gap: 6px; }
 .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .summary { display: flex; gap: 12px; flex-wrap: wrap; font-size: 13px; color: var(--muted); align-items: center; justify-content: space-between; }
 .summary b { color: var(--ink); font-variant-numeric: tabular-nums; }
@@ -337,8 +342,32 @@ details.adv[open] summary { margin-bottom: 8px; }
             <label for="fTitulo">Identificação (RAL ou nome)</label>
             <input id="fTitulo" type="text" placeholder="Ex.: RAL-704579/2026">
           </div>
+          <div class="field">
+            <span class="lbl" id="modoLbl">Como marcar o local</span>
+            <div class="seg modo-seg" id="modoSeg" role="group" aria-labelledby="modoLbl">
+              <button type="button" data-modo="otdr" aria-pressed="true">Pela medida</button>
+              <button type="button" data-modo="gps" aria-pressed="false">Onde estou</button>
+              <button type="button" data-modo="mapa" aria-pressed="false">No mapa</button>
+              <button type="button" data-modo="coord" aria-pressed="false">Coordenadas</button>
+            </div>
+          </div>
+          <div class="ponto-box" id="pontoBox" hidden>
+            <div data-p="gps">
+              <button type="button" class="primary" id="gpsBtn">Pegar minha localização</button>
+              <p class="hint" id="gpsHint">Fique no local do rompimento. Com céu aberto o GPS fica mais preciso.</p>
+            </div>
+            <div data-p="mapa">
+              <button type="button" class="primary" id="mapaPickBtn">Tocar no mapa para marcar</button>
+              <p class="hint">Pode ser qualquer lugar, não precisa estar lá. Use o satélite e o zoom para acertar o ponto.</p>
+            </div>
+            <div data-p="coord" class="field">
+              <label for="fCoord">Coordenadas ou link do Google Maps</label>
+              <div class="row"><input id="fCoord" type="text" placeholder="-21.41234, -50.07123"><button type="button" class="btn" id="coordBtn">Usar</button></div>
+              <p class="hint">Aceita “-21.41234, -50.07123”, 21°24'44"S 50°04'16"W ou um link do Google Maps aberto no navegador.</p>
+            </div>
+          </div>
           <fieldset class="trecho">
-            <legend>Trecho</legend>
+            <legend id="trechoLegend">Trecho</legend>
             <div class="field ac">
               <label for="fOrig">De (onde a medida começa)</label>
               <div class="row"><input id="fOrig" type="text" placeholder="Ex.: Penápolis" aria-autocomplete="list"><button type="button" class="ghost" data-pick="origin">No mapa</button></div>
@@ -357,7 +386,7 @@ details.adv[open] summary { margin-bottom: 8px; }
           </fieldset>
 
           <div class="field">
-            <label for="fDist">Distância a partir da origem</label>
+            <label for="fDist" id="distLabel">Distância a partir da origem</label>
             <div class="row">
               <input id="fDist" type="text" inputmode="decimal" placeholder="Ex.: 6 ou 6,350">
               <select id="fUnit" aria-label="Unidade"><option value="km">km</option><option value="m">metros</option></select>
@@ -806,7 +835,10 @@ function renderBase() {
   for (const p of P.points) {
     const m = L.circleMarker(p.coord, { radius: small ? 3 : 5, color: ink, weight: 1.5, fillColor: surf, fillOpacity: 1, bubblingMouseEvents: false });
     m.bindTooltip(esc(p.name || 'Ponto sem nome'), { direction: 'top' });
-    m.on('click', () => { if (S.pick) setPlace(S.pick, { name: p.name || 'Ponto', lat: p.coord[0], lng: p.coord[1] }); });
+    m.on('click', () => {
+      if (S.pick === 'break') { S.ponto = { lat: r6(p.coord[0]), lng: r6(p.coord[1]), fonte: 'mapa' }; endPick(); recalc({ keepManual: true }); }
+      else if (S.pick) setPlace(S.pick, { name: p.name || 'Ponto', lat: p.coord[0], lng: p.coord[1] });
+    });
     m.addTo(pointLayer);
   }
   if (!S.fitted) {
@@ -906,9 +938,110 @@ function setupAC(inp, w) {
 }
 setupAC(fOrig, 'origin'); setupAC(fDest, 'dest');
 
+/* ---- jeitos de marcar: pela medida, GPS, tocar no mapa, coordenadas ---- */
+const MODOS = ['otdr', 'gps', 'mapa', 'coord'];
+function setModo(m, opts = {}) {
+  if (!MODOS.includes(m)) m = 'otdr';
+  S.modo = m;
+  try { localStorage.setItem('romp-modo', m); } catch (_) {}
+  $$('#modoSeg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.modo === m)));
+  $('#pontoBox').hidden = m === 'otdr';
+  $$('#pontoBox [data-p]').forEach(d => { d.hidden = d.dataset.p !== m; });
+  $('#adv').hidden = m !== 'otdr';
+  $('#trechoLegend').textContent = m === 'otdr' ? 'Trecho' : 'Trecho (opcional, ajuda na pesquisa)';
+  $('#distLabel').textContent = m === 'otdr' ? 'Distância a partir da origem' : 'Medida do OTDR (opcional, só para registro)';
+  if (!opts.keepPonto) S.ponto = null;
+  recalc({ keepManual: !!opts.keepPonto });
+  if (m === 'gps' && !S.ponto && !opts.noAuto) pegarGps();
+}
+$$('#modoSeg button').forEach(b => b.addEventListener('click', () => setModo(b.dataset.modo)));
+
+let gpsWatch = null;
+function pararGps() { if (gpsWatch !== null) { try { navigator.geolocation.clearWatch(gpsWatch); } catch (_) {} gpsWatch = null; } }
+function pegarGps() {
+  const hint = $('#gpsHint');
+  if (!('geolocation' in navigator)) { hint.textContent = 'Este aparelho não informa a localização.'; return; }
+  pararGps();
+  hint.textContent = 'Buscando sua localização…';
+  const t0 = Date.now(); let melhor = null;
+  gpsWatch = navigator.geolocation.watchPosition(pos => {
+    const acc = pos.coords.accuracy;
+    if (!melhor || acc < melhor) {
+      melhor = acc;
+      S.ponto = { lat: r6(pos.coords.latitude), lng: r6(pos.coords.longitude), acc: Math.round(acc), fonte: 'gps' };
+      recalc({ keepManual: true });
+      map.setView([S.ponto.lat, S.ponto.lng], Math.max(map.getZoom(), 17));
+    }
+    hint.textContent = acc <= 15 ? `Localização pega (precisão de ±${Math.round(acc)} m).` : `Melhorando a precisão… agora ±${Math.round(acc)} m. Pode salvar ou esperar.`;
+    if (acc <= 10 || Date.now() - t0 > 25000) pararGps();
+  }, err => {
+    pararGps();
+    hint.textContent = err.code === 1
+      ? 'A localização foi bloqueada. Permita a localização para este site nas configurações do navegador e toque de novo.'
+      : 'Não consegui pegar a localização agora. Tente de novo, ou use “No mapa”.';
+  }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+  setTimeout(pararGps, 30000);
+}
+$('#gpsBtn').addEventListener('click', pegarGps);
+$('#mapaPickBtn').addEventListener('click', () => startPick('break'));
+
+function parseCoordText(t) {
+  t = String(t || '').trim(); if (!t) return null;
+  let m;
+  const ok = (la, ln) => (isFinite(la) && isFinite(ln) && Math.abs(la) <= 90 && Math.abs(ln) <= 180) ? { lat: r6(la), lng: r6(ln) } : null;
+  if ((m = t.match(/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/))) return ok(+m[1], +m[2]);
+  if ((m = t.match(/[?&](?:q|query|ll|destination|center)=(-?\d+(?:\.\d+)?)\s*(?:,|%2C)\s*(-?\d+(?:\.\d+)?)/i))) return ok(+m[1], +m[2]);
+  if ((m = t.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/))) return ok(+m[1], +m[2]);
+  const dms = /(\d{1,3})\s*°\s*(\d{1,2})\s*['’]\s*(\d{1,2}(?:[.,]\d+)?)\s*(?:"|”|'')?\s*([NSns])[\s,;]+(\d{1,3})\s*°\s*(\d{1,2})\s*['’]\s*(\d{1,2}(?:[.,]\d+)?)\s*(?:"|”|'')?\s*([EWOLewol])/;
+  if ((m = t.match(dms))) {
+    const v = (d, mi, s) => +d + +mi / 60 + parseFloat(String(s).replace(',', '.')) / 3600;
+    let la = v(m[1], m[2], m[3]), ln = v(m[5], m[6], m[7]);
+    if (/[Ss]/.test(m[4])) la = -la; if (/[WOwo]/.test(m[8])) ln = -ln;
+    return ok(la, ln);
+  }
+  if ((m = t.match(/(-?\d{1,3}[.,]\d+)\s*[,;\s]\s*(-?\d{1,3}[.,]\d+)/))) return ok(parseFloat(m[1].replace(',', '.')), parseFloat(m[2].replace(',', '.')));
+  return null;
+}
+function usarCoord() {
+  const raw = $('#fCoord').value;
+  if (/goo\.gl|maps\.app/.test(raw)) { toast('Link curto não dá para ler. Abra o link, e na página do Google Maps copie as coordenadas ou o endereço completo da barra.'); return; }
+  const p = parseCoordText(raw);
+  if (!p) { toast('Não entendi essas coordenadas. Exemplo: -21.41234, -50.07123'); return; }
+  S.ponto = Object.assign(p, { fonte: 'coord' });
+  recalc({ keepManual: true });
+  map.setView([p.lat, p.lng], Math.max(map.getZoom(), 16));
+}
+$('#coordBtn').addEventListener('click', usarCoord);
+$('#fCoord').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); usarCoord(); } });
+
+function placePreview(pos) {
+  if (!previewMarker) {
+    previewMarker = L.marker(pos, { icon: L.divIcon({ className: '', html: '<span class="pin preview"></span>', iconSize: [28, 28], iconAnchor: [14, 14] }), draggable: true, zIndexOffset: 1000 })
+      .bindTooltip('Arraste para ajustar', { direction: 'top', offset: [0, -14] }).addTo(map);
+    previewMarker.on('dragend', () => {
+      const ll = previewMarker.getLatLng(), p = { lat: r6(ll.lat), lng: r6(ll.lng) };
+      if (S.modo !== 'otdr') { if (S.ponto) { S.ponto.lat = p.lat; S.ponto.lng = p.lng; S.ponto.ajustado = true; } }
+      else { S.manual = p; if (S.calc) { S.calc.lat = p.lat; S.calc.lng = p.lng; } }
+      renderResult();
+    });
+  } else previewMarker.setLatLng(pos);
+}
+function snapInfo(p) {
+  const net = getNet(); if (!net || !net.segs.length) return null;
+  const s = nearestSeg(net, [p.lat, p.lng]); if (!s) return null;
+  const ln = S.parsed && S.parsed.lines[net.segs[s.i][3]];
+  return { d: s.d, pt: s.pt, nome: ln ? ln.name : '' };
+}
+function encaixarNoCabo() {
+  if (!S.ponto) return; const s = snapInfo(S.ponto); if (!s) return;
+  S.ponto.lat = r6(s.pt[0]); S.ponto.lng = r6(s.pt[1]); S.ponto.ajustado = true;
+  recalc({ keepManual: true });
+}
+document.addEventListener('click', e => { if (e.target.closest('#snapBtn')) encaixarNoCabo(); });
+
 function startPick(w) {
   S.pick = w;
-  $('#pickText').textContent = w === 'origin' ? 'Toque no mapa para marcar a ORIGEM' : 'Toque no mapa para marcar o DESTINO';
+  $('#pickText').textContent = w === 'break' ? 'Toque no mapa onde foi o ROMPIMENTO' : w === 'origin' ? 'Toque no mapa para marcar a ORIGEM' : 'Toque no mapa para marcar o DESTINO';
   $('#pickbar').hidden = false; $('#map').classList.add('picking');
   if (window.innerWidth < 900) $('.mapbox').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -917,6 +1050,12 @@ $$('[data-pick]').forEach(b => b.addEventListener('click', () => startPick(b.dat
 $('#pickCancel').addEventListener('click', endPick);
 map.on('click', e => {
   if (!S.pick) return;
+  if (S.pick === 'break') {
+    S.ponto = { lat: r6(e.latlng.lat), lng: r6(e.latlng.lng), fonte: 'mapa' };
+    endPick(); recalc({ keepManual: true });
+    if (window.innerWidth < 900) $('#result').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
   const w = S.pick, inp = inputOf(w);
   setPlace(w, { name: inp.value.trim() || 'Ponto no mapa', lat: r6(e.latlng.lat), lng: r6(e.latlng.lng) }, true);
 });
@@ -935,6 +1074,13 @@ function recalc(opts = {}) {
   if (!opts.keepManual) S.manual = null;
   routeLayer.clearLayers();
   S.calc = null;
+  if (S.modo && S.modo !== 'otdr') {
+    if (S.ponto) {
+      placePreview([S.ponto.lat, S.ponto.lng]);
+      if (!S.areaTouched) { const a = areaAt([S.ponto.lat, S.ponto.lng]); if (a) fArea.value = a; }
+    } else if (previewMarker) { map.removeLayer(previewMarker); previewMarker = null; }
+    renderResult(); return;
+  }
   const o = S.origin, d = S.dest;
   if (!o || !d) { if (previewMarker) { map.removeLayer(previewMarker); previewMarker = null; } renderResult(); return; }
   const r = computeRoute(o, d);
@@ -954,23 +1100,32 @@ function recalc(opts = {}) {
   const pos = S.manual ? [S.manual.lat, S.manual.lng] : w.pt;
   S.calc = { route: r, distM, eff, folga, over: w.over, lat: r6(pos[0]), lng: r6(pos[1]), auto: { lat: r6(w.pt[0]), lng: r6(w.pt[1]) } };
   if (!S.areaTouched) { const a = areaAt(w.pt); if (a) fArea.value = a; }
-  if (!previewMarker) {
-    previewMarker = L.marker(pos, { icon: L.divIcon({ className: '', html: '<span class="pin preview"></span>', iconSize: [28, 28], iconAnchor: [14, 14] }), draggable: true, zIndexOffset: 1000 })
-      .bindTooltip('Arraste para ajustar', { direction: 'top', offset: [0, -14] }).addTo(map);
-    previewMarker.on('dragend', () => {
-      const ll = previewMarker.getLatLng();
-      S.manual = { lat: r6(ll.lat), lng: r6(ll.lng) };
-      if (S.calc) { S.calc.lat = S.manual.lat; S.calc.lng = S.manual.lng; }
-      renderResult();
-    });
-  } else previewMarker.setLatLng(pos);
+  placePreview(pos);
   if (!opts.noPan && !map.getBounds().pad(-0.1).contains(pos)) map.panTo(pos);
   renderResult();
 }
 function gmapsUrl(lat, lng) { return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`; }
+const FONTE_TXT = { gps: 'Sua localização (GPS)', mapa: 'Marcado no mapa', coord: 'Coordenadas digitadas' };
 function renderResult() {
   const el = $('#result'), c = S.calc;
   el.classList.remove('ready');
+  if (S.modo && S.modo !== 'otdr') {
+    const p = S.ponto;
+    if (!p) {
+      const msg = { gps: 'Toque em <b>Pegar minha localização</b> estando no local do rompimento.', mapa: 'Toque em <b>Tocar no mapa para marcar</b> e depois no ponto do rompimento.', coord: 'Cole as coordenadas ou o link do Google Maps e toque em <b>Usar</b>.' }[S.modo];
+      el.innerHTML = `<span class="k">Ponto do rompimento</span><span class="meta">${msg}</span>`;
+      return;
+    }
+    const s = snapInfo(p);
+    el.classList.add('ready');
+    el.innerHTML = `<span class="k">Ponto do rompimento</span>
+      <span class="coord">${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}</span>
+      <span class="meta">${esc(FONTE_TXT[p.fonte] || 'Ponto')}${p.acc ? ` · precisão ±${p.acc} m` : ''}${p.ajustado ? ' · ajustado à mão' : ''}</span>
+      ${s ? `<span class="meta">A <b class="mono">${fmtDist(s.d)}</b> do cabo mais próximo${s.nome ? ` (${esc(s.nome)})` : ''}.</span>` : ''}
+      ${p.acc && p.acc > 50 ? '<span class="warn">Precisão baixa. Se puder, espere um pouco ou ajuste arrastando o ponto.</span>' : ''}
+      <div class="links">${s && s.d > 3 && s.d < 500 ? `<button type="button" class="btn sm" id="snapBtn">Encaixar no cabo</button>` : ''}<a class="btn sm" href="${gmapsUrl(p.lat, p.lng)}" target="_blank" rel="noopener">Abrir no Google Maps</a><button type="button" class="btn sm" data-copy="${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}">Copiar coordenadas</button></div>`;
+    return;
+  }
   if (!S.origin || !S.dest) {
     el.innerHTML = `<span class="k">Ponto do rompimento</span><span class="meta">Preencha <b>de onde</b>, <b>para onde</b> e a <b>distância</b>. O ponto aparece no mapa e você pode arrastar para ajustar.</span>`;
     return;
@@ -1002,7 +1157,8 @@ fUnit.addEventListener('change', () => recalc());
 fArea.addEventListener('input', () => { S.areaTouched = true; });
 
 function resetForm(keepTrecho) {
-  S.editId = null; S.manual = null; S.areaTouched = false;
+  S.editId = null; S.manual = null; S.areaTouched = false; S.ponto = null; pararGps();
+  $('#fCoord').value = '';
   $('#editNote').hidden = true; $('#saveBtn').textContent = 'Salvar rompimento';
   fDist.value = ''; fObs.value = ''; fTitulo.value = ''; fStatus.value = 'aberto'; fData.value = nowLocal();
   if (!keepTrecho) { S.origin = S.dest = null; fOrig.value = fDest.value = ''; fArea.value = ''; fFolga.value = '0'; updateHint('origin'); updateHint('dest'); }
@@ -1020,7 +1176,7 @@ function cleanBreak(o) {
     origem: str(o.origem, 120), destino: str(o.destino, 120),
     origemLat: num(o.origemLat), origemLng: num(o.origemLng), destinoLat: num(o.destinoLat), destinoLng: num(o.destinoLng),
     distM: num(o.distM), unidade: o.unidade === 'm' ? 'm' : 'km', folgaPct: num(o.folgaPct) || 0,
-    lat: num(o.lat), lng: num(o.lng), rotaM: num(o.rotaM), metodo: o.metodo === 'manual' ? 'manual' : 'rota',
+    lat: num(o.lat), lng: num(o.lng), rotaM: num(o.rotaM), metodo: ['manual', 'gps', 'mapa', 'coord'].includes(o.metodo) ? o.metodo : 'rota', precisaoM: num(o.precisaoM),
     area: str(o.area, 120), status: o.status === 'reparado' ? 'reparado' : 'aberto',
     dataHora: str(o.dataHora, 40), obs: str(o.obs, 2000),
     criadoEm: str(o.criadoEm, 40), atualizadoEm: str(o.atualizadoEm, 40), criadoPor: str(o.criadoPor, 120) || null
@@ -1035,6 +1191,26 @@ $('#form').addEventListener('submit', async e => {
   const now = new Date().toISOString();
   const prev = S.editId ? S.breaks.find(b => b.id === S.editId) : null;
   let dh = now; try { if (fData.value) dh = new Date(fData.value).toISOString(); } catch (_) {}
+  if (S.modo && S.modo !== 'otdr') {
+    // Marcado pelo GPS, tocando no mapa ou por coordenadas: o ponto é o próprio local; trecho e medida são só registro.
+    if (!S.ponto) { toast('Defina o local do rompimento primeiro.'); return; }
+    const dm = readDistM();
+    const b = Object.assign({}, prev || {}, {
+      id: S.editId || uid(), titulo: fTitulo.value.trim(), importado: prev ? !!prev.importado : false,
+      origem: fOrig.value.trim(), destino: fDest.value.trim(),
+      origemLat: S.origin ? S.origin.lat : null, origemLng: S.origin ? S.origin.lng : null,
+      destinoLat: S.dest ? S.dest.lat : null, destinoLng: S.dest ? S.dest.lng : null,
+      distM: dm === null ? null : Math.round(dm * 100) / 100, unidade: fUnit.value, folgaPct: 0,
+      lat: r6(S.ponto.lat), lng: r6(S.ponto.lng), rotaM: null, metodo: S.ponto.fonte || 'mapa', precisaoM: S.ponto.acc || null,
+      area: fArea.value.trim(), status: fStatus.value, dataHora: dh, obs: fObs.value.trim(),
+      criadoEm: prev ? prev.criadoEm : now, atualizadoEm: now, criadoPor: prev ? prev.criadoPor : (S.userId || null)
+    });
+    const btn = $('#saveBtn'); btn.disabled = true;
+    try { await Store.save(b); toast(S.editId ? 'Alterações salvas.' : 'Rompimento salvo.'); resetForm(true); }
+    catch (err) { handleWriteError(err); }
+    finally { btn.disabled = !S.canWrite; }
+    return;
+  }
   const hasCalc = S.origin && S.dest && S.calc && S.calc.distM !== undefined;
   if (prev && !hasCalc) {
     // edição de um rompimento sem trecho (ex.: importado do KMZ antigo): mantém a posição
@@ -1097,7 +1273,7 @@ function renderList() {
       <div class="item-head"><span class="pill ${rep ? 'ok' : 'bad'}">${rep ? 'Reparado' : 'Aberto'}</span><time>${esc(fmtDate(b.dataHora))}</time>${b.area ? `<span>· ${esc(b.area)}</span>` : ''}</div>
       ${b.titulo ? `<div class="item-title"><b>${esc(b.titulo)}</b></div>` : ''}
       ${trechoHtml(b)}
-      <div class="coords mono">${Number(b.lat).toFixed(6)}, ${Number(b.lng).toFixed(6)}${b.folgaPct ? ` · folga ${esc(String(b.folgaPct).replace('.', ','))}%` : ''}${b.metodo === 'manual' ? ' · ajustado à mão' : ''}</div>
+      <div class="coords mono">${Number(b.lat).toFixed(6)}, ${Number(b.lng).toFixed(6)}${b.folgaPct ? ` · folga ${esc(String(b.folgaPct).replace('.', ','))}%` : ''}${({ manual: ' · ajustado à mão', gps: ' · pelo GPS' + (b.precisaoM ? ` (±${b.precisaoM} m)` : ''), mapa: ' · marcado no mapa', coord: ' · por coordenadas' })[b.metodo] || ''}</div>
       ${b.cidades ? `<div class="coords">Cidades: ${esc(b.cidades)}</div>` : ''}
       ${b.obs ? `<p class="obs">${esc(b.obs.length > 400 ? b.obs.slice(0, 400) + '…' : b.obs)}</p>` : ''}
       <div class="item-actions">
@@ -1122,8 +1298,8 @@ function renderAreaList() {
   $('#areaList').innerHTML = [...set].sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true })).map(a => `<option value="${esc(a)}"></option>`).join('');
 }
 $('#q').addEventListener('input', e => { S.filter.q = e.target.value; renderList(); renderBreakMarkers(); });
-$$('.seg button').forEach(b => b.addEventListener('click', () => {
-  S.filter.status = b.dataset.st; $$('.seg button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+$$('.seg button[data-st]').forEach(b => b.addEventListener('click', () => {
+  S.filter.status = b.dataset.st; $$('.seg button[data-st]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
   renderList(); renderBreakMarkers();
 }));
 $('#fltArea').addEventListener('change', e => { S.filter.area = e.target.value; renderList(); renderBreakMarkers(); });
@@ -1138,7 +1314,7 @@ function focusBreak(id, pan = true) {
   const b = S.breaks.find(x => x.id === id); if (!b) return;
   if (!visibleBreaks().some(x => x.id === id)) {
     S.filter = { q: '', status: 'all', area: '' }; $('#q').value = '';
-    $$('.seg button').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.st === 'all')));
+    $$('.seg button[data-st]').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.st === 'all')));
     renderList(); renderBreakMarkers();
   }
   showTab('pesquisar');
@@ -1179,8 +1355,18 @@ function loadForEdit(b) {
   fArea.value = b.area || ''; fStatus.value = b.status; fObs.value = b.obs || '';
   fData.value = b.dataHora ? nowLocal(new Date(b.dataHora)) : nowLocal();
   updateHint('origin'); updateHint('dest');
-  if (b.metodo === 'manual') S.manual = { lat: b.lat, lng: b.lng };
-  recalc({ keepManual: true });
+  if (hasTrecho && (b.metodo === 'rota' || b.metodo === 'manual')) {
+    setModo('otdr', { keepPonto: true, noAuto: true });
+    if (b.metodo === 'manual') S.manual = { lat: b.lat, lng: b.lng };
+    recalc({ keepManual: true });
+  } else {
+    // marcado por ponto (GPS, mapa, coordenadas) ou importado do KMZ antigo: edita como ponto
+    if (!hasTrecho) { fOrig.value = b.origem || ''; fDest.value = b.destino || ''; }
+    if (typeof b.distM === 'number' && !hasTrecho) { const v = fUnit.value === 'km' ? b.distM / 1000 : b.distM; fDist.value = String(Math.round(v * 1000) / 1000).replace('.', ','); }
+    const fonte = ['gps', 'mapa', 'coord'].includes(b.metodo) ? b.metodo : 'mapa';
+    S.ponto = { lat: b.lat, lng: b.lng, fonte, acc: b.precisaoM || null };
+    setModo(fonte, { keepPonto: true, noAuto: true });
+  }
   map.setView([b.lat, b.lng], Math.max(map.getZoom(), 14));
   $('.panel').scrollTo && $('.panel').scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -1610,7 +1796,11 @@ async function startSession(u) {
     else { await ref.set({ admin: true, liberadoEm: new Date().toISOString() }); S.isAdmin = true; }
   } catch (_) { showLogin(`A conta ${email || '(sem e-mail)'} ainda não foi liberada. Peça ao responsável para liberar esse e-mail e depois entre de novo.`, true); return; }
   $('#login').hidden = true; $('#sairBtn').hidden = false;
-  S.canWrite = true; S.canBase = S.isAdmin;
+  // Só o responsável (e quem ele marcar como administrador) marca e edita; os demais só consultam.
+  S.canWrite = S.isAdmin; S.canBase = S.isAdmin;
+  $('#roNote').textContent = 'Você pode consultar e pesquisar. Só o responsável marca e edita rompimentos.';
+  $('#t-marcar').hidden = !S.isAdmin;
+  if (!S.isAdmin) showTab('pesquisar');
   setChip('Online · ' + email, 'cloud'); if (S.updOnline) S.updOnline();
   applyPerms(); updateBaseInfo(); shareInfo();
   let loaded = false;
@@ -1667,6 +1857,8 @@ $('#acessos').addEventListener('click', async e => {
 
 async function init() {
   fData.value = nowLocal();
+  let modo0 = 'otdr'; try { modo0 = localStorage.getItem('romp-modo') || 'otdr'; } catch (_) {}
+  setModo(modo0, { noAuto: true });
   renderResult(); renderList();
   if (location.protocol !== 'file:' && isSite()) { await initFirebase(); return; }
   if (location.protocol !== 'file:' && await waitClaude(2000)) {
