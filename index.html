@@ -1,4 +1,4 @@
-<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"></head><body><title>Mapa de Rompimentos</title>
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="manifest" href="manifest.webmanifest"><meta name="theme-color" content="#15212C"><link rel="icon" type="image/png" sizes="192x192" href="icon-192.png"><link rel="apple-touch-icon" href="apple-touch-icon.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Rompimentos"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"></head><body><title>Mapa de Rompimentos</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -257,7 +257,9 @@ details.adv[open] summary { margin-bottom: 8px; }
 @keyframes pulse { 0% { box-shadow: 0 0 0 1.5px var(--bad), 0 0 0 0 color-mix(in srgb, var(--bad) 55%, transparent); } 100% { box-shadow: 0 0 0 1.5px var(--bad), 0 0 0 14px transparent; } }
 @media (prefers-reduced-motion: reduce) { .pin.open { animation: none; } * { scroll-behavior: auto !important; } }
 
-.top-right { display: flex; align-items: center; gap: 8px; }
+.top-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; max-width: 100%; }
+.top-right .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; display: inline-block; }
+.top-right .chip::before { display: inline-block; margin-right: 6px; vertical-align: middle; }
 .login { position: fixed; inset: 0; z-index: 2500; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(3px); display: grid; place-items: center; padding: 16px; }
 .login-card { width: min(380px, 100%); background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 22px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 12px; }
 .login-card h2 { font-size: 26px; text-transform: uppercase; letter-spacing: .05em; }
@@ -289,6 +291,7 @@ details.adv[open] summary { margin-bottom: 8px; }
   </div>
   <div class="top-right">
     <span class="chip" id="modeChip">Conectando…</span>
+    <button type="button" class="btn sm" id="instalarBtn" hidden>Instalar app</button>
     <button type="button" class="btn sm" id="sairBtn" hidden>Sair</button>
   </div>
 </header>
@@ -758,8 +761,8 @@ function addTiles() {
   if (tilesOn) return; tilesOn = true;
   L.control.attribution({ prefix: false }).addTo(map);
   const esri = s => `https://server.arcgisonline.com/ArcGIS/rest/services/${s}/MapServer/tile/{z}/{y}/{x}`;
-  const ruas = L.tileLayer(esri('World_Street_Map'), { maxZoom: 19, attribution: 'Tiles © Esri' }).addTo(map);
-  const sat = L.tileLayer(esri('World_Imagery'), { maxZoom: 19, attribution: 'Imagens © Esri' });
+  const ruas = L.tileLayer(esri('World_Street_Map'), { maxZoom: 19, crossOrigin: 'anonymous', attribution: 'Tiles © Esri' }).addTo(map);
+  const sat = L.tileLayer(esri('World_Imagery'), { maxZoom: 19, crossOrigin: 'anonymous', attribution: 'Imagens © Esri' });
   L.control.layers({ 'Ruas': ruas, 'Satélite': sat }, null, { position: 'topright', collapsed: false }).addTo(map);
 }
 try { new ResizeObserver(() => map.invalidateSize()).observe($('#map')); } catch (_) {}
@@ -1356,7 +1359,12 @@ const bodyOf = b => { const body = JSON.parse(JSON.stringify(b)); delete body.id
 const Store = {
   async save(b) {
     if (S.mode === 'cloud') { await S.api.db.collection('rompimentos').doc(b.id).set(bodyOf(b)); return; }
-    if (S.mode === 'firebase') { await S.api.fs.collection('rompimentos').doc(b.id).set(bodyOf(b)); return; }
+    if (S.mode === 'firebase') {
+      // Sem sinal, o Firestore guarda no aparelho e envia quando voltar; não esperamos o servidor responder.
+      const p = S.api.fs.collection('rompimentos').doc(b.id).set(bodyOf(b));
+      if (navigator.onLine) await p; else { p.catch(handleWriteError); toast('Sem sinal: salvo no aparelho, envia quando voltar.'); }
+      return;
+    }
     const i = S.breaks.findIndex(x => x.id === b.id);
     S.breaks = i >= 0 ? S.breaks.map(x => x.id === b.id ? b : x) : [...S.breaks, b];
     await IDB.set('breaks', S.breaks); renderAll();
@@ -1379,7 +1387,11 @@ const Store = {
   },
   async remove(id) {
     if (S.mode === 'cloud') { await S.api.db.collection('rompimentos').doc(id).delete(); return; }
-    if (S.mode === 'firebase') { await S.api.fs.collection('rompimentos').doc(id).delete(); return; }
+    if (S.mode === 'firebase') {
+      const p = S.api.fs.collection('rompimentos').doc(id).delete();
+      if (navigator.onLine) await p; else p.catch(handleWriteError);
+      return;
+    }
     S.breaks = S.breaks.filter(x => x.id !== id); await IDB.set('breaks', S.breaks); renderAll();
   },
   async saveBase(text, nome) {
@@ -1530,9 +1542,36 @@ function showLogin(msg, warn) {
   $('#login').hidden = false; $('#sairBtn').hidden = !warn; $('#acessoBox').hidden = true;
   setChip('Não conectado', 'local');
 }
+function setupPwa() {
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW', e));
+  const btn = $('#instalarBtn');
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  if (standalone) return;
+  let deferred = null;
+  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferred = e; btn.hidden = false; });
+  window.addEventListener('appinstalled', () => { btn.hidden = true; toast('App instalado. Procure o ícone Rompimentos na tela inicial.'); });
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  if (ios) btn.hidden = false;
+  btn.addEventListener('click', async () => {
+    if (deferred) { deferred.prompt(); try { await deferred.userChoice; } catch (_) {} deferred = null; btn.hidden = true; }
+    else if (ios) toast('No iPhone: toque em Compartilhar (□↑) e depois em “Adicionar à Tela de Início”.');
+    else toast('No menu do navegador (⋮), toque em “Instalar app” ou “Adicionar à tela inicial”.');
+  });
+}
+function setupOnline() {
+  const upd = () => {
+    if (S.mode !== 'firebase' || !S.userEmail) return;
+    if (navigator.onLine) setChip('Online · ' + S.userEmail, 'cloud');
+    else setChip('Sem sinal · salva no aparelho', 'local');
+  };
+  window.addEventListener('online', () => { upd(); toast('Sinal de volta: enviando o que foi marcado.'); });
+  window.addEventListener('offline', () => { upd(); toast('Sem sinal. Pode continuar marcando; envia quando voltar.'); });
+  S.updOnline = upd;
+}
 async function initFirebase() {
   S.mode = 'firebase';
   addTiles(); setChip('Conectando…');
+  setupPwa(); setupOnline();
   try { for (const f of ['app', 'auth', 'firestore']) await loadScript(`https://www.gstatic.com/firebasejs/${FB_VER}/firebase-${f}-compat.js`); }
   catch (e) { toast('Sem conexão para entrar. Confira a internet e recarregue.'); setChip('Sem conexão', 'local'); return; }
   firebase.initializeApp(FB_CONFIG);
@@ -1572,7 +1611,7 @@ async function startSession(u) {
   } catch (_) { showLogin(`A conta ${email || '(sem e-mail)'} ainda não foi liberada. Peça ao responsável para liberar esse e-mail e depois entre de novo.`, true); return; }
   $('#login').hidden = true; $('#sairBtn').hidden = false;
   S.canWrite = true; S.canBase = S.isAdmin;
-  setChip('Online · ' + email, 'cloud');
+  setChip('Online · ' + email, 'cloud'); if (S.updOnline) S.updOnline();
   applyPerms(); updateBaseInfo(); shareInfo();
   let loaded = false;
   const timer = setTimeout(() => { if (!loaded) toast('Ainda buscando os rompimentos… confira a internet.'); }, 10000);
