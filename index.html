@@ -309,7 +309,7 @@ details.adv[open] summary { margin-bottom: 8px; }
     </svg>
     <div>
       <h1>Rompimentos</h1>
-      <p id="baseName">Carregando…</p>
+      <p id="baseName" hidden>Carregando…</p>
     </div>
   </div>
   <div class="top-right">
@@ -1962,7 +1962,7 @@ function setCriar(on) {
   $('#lgSenha').autocomplete = on ? 'new-password' : 'current-password';
 }
 // Versão do app: ao voltar para o app, confere se o site tem versão mais nova e oferece atualizar
-const APP_VERSAO = '2026-11-18c';
+const APP_VERSAO = '2026-11-18d';
 function checarVersao() {
   if (!navigator.onLine) return;
   fetch(location.pathname + '?versao=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => {
