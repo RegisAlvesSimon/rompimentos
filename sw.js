@@ -1,5 +1,5 @@
 // Rompimentos — service worker: deixa o app abrir e funcionar sem sinal.
-const APP = 'romp-app-v1';
+const APP = 'romp-app-v2';
 const TILES = 'romp-tiles-v1';
 const MAX_TILES = 2500;
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];

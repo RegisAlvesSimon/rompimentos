@@ -1,4 +1,4 @@
-<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="manifest" href="manifest.webmanifest"><meta name="theme-color" content="#15212C"><link rel="icon" type="image/png" sizes="192x192" href="icon-192.png"><link rel="apple-touch-icon" href="apple-touch-icon.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Rompimentos"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"></head><body><title>Mapa de Rompimentos</title>
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="manifest" href="manifest.webmanifest"><meta name="theme-color" content="#071423"><link rel="icon" type="image/png" sizes="192x192" href="icon-192.png?v=2"><link rel="apple-touch-icon" href="apple-touch-icon.png?v=2"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Rompimentos"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"></head><body><title>Mapa de Rompimentos</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -301,11 +301,21 @@ details.adv[open] summary { margin-bottom: 8px; }
 
 <header class="top">
   <div class="brand">
-    <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true">
-      <rect width="34" height="34" rx="8" fill="var(--ink)"/>
-      <path d="M5 21 C 9 21, 11 13, 15 13" stroke="var(--route)" stroke-width="3" fill="none" stroke-linecap="round"/>
-      <path d="M19 21 C 23 21, 25 13, 29 13" stroke="var(--route)" stroke-width="3" fill="none" stroke-linecap="round"/>
-      <path d="M17 8 L17 11 M13.5 9.5 L15 12 M20.5 9.5 L19 12" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/>
+    <svg width="36" height="36" viewBox="0 0 100 100" aria-hidden="true">
+      <defs>
+        <linearGradient id="lgFundo" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#071423"/><stop offset="1" stop-color="#0B3A4A"/></linearGradient>
+        <filter id="lgBrilho" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="2.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      </defs>
+      <rect width="100" height="100" rx="23" fill="url(#lgFundo)"/>
+      <g fill="none" stroke-linecap="round" stroke-width="3.2" filter="url(#lgBrilho)">
+        <path d="M15 85 C 36 61, 54 25, 82 20" stroke="#3EE8FF"/>
+        <path d="M15 85 C 39 64, 60 35, 85 35" stroke="#3DA9FF"/>
+        <path d="M15 85 C 42 67, 63 49, 84 52" stroke="#7C7CFF"/>
+        <path d="M15 85 C 43 72, 61 66, 78 67" stroke="#B26BFF"/>
+      </g>
+      <g fill="#fff" filter="url(#lgBrilho)"><circle cx="82" cy="20" r="3.4"/><circle cx="85" cy="35" r="3.4"/><circle cx="84" cy="52" r="3.4"/><circle cx="78" cy="67" r="3.4"/></g>
+      <circle cx="47" cy="55" r="5" fill="#FFB25C" filter="url(#lgBrilho)"/>
+      <path d="M47 45 V49 M47 61 V65 M37 55 H41 M53 55 H57 M40 48 L42.5 50.5 M54 48 L51.5 50.5" stroke="#FF8A3D" stroke-width="2.4" stroke-linecap="round"/>
     </svg>
     <div>
       <h1>Rompimentos</h1>
@@ -1962,7 +1972,7 @@ function setCriar(on) {
   $('#lgSenha').autocomplete = on ? 'new-password' : 'current-password';
 }
 // Versão do app: ao voltar para o app, confere se o site tem versão mais nova e oferece atualizar
-const APP_VERSAO = '2026-11-18d';
+const APP_VERSAO = '2026-11-18e';
 function checarVersao() {
   if (!navigator.onLine) return;
   fetch(location.pathname + '?versao=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => {
