@@ -20,6 +20,8 @@
   --bad-soft: #FBE3E3;
   --ok: #1E7F48;
   --ok-soft: #DDF2E5;
+  --ref: #6D4CC7;
+  --ref-soft: #ECE6FA;
   --map-bg: #D3DCE3;
   --mun-fill: #F6F7F5;
   --mun-line: #C3CCD4;
@@ -33,7 +35,7 @@
   :root:not([data-theme="light"]) {
     --bg: #0E151B; --surface: #16212A; --surface-2: #1C2832; --ink: #E5ECF2; --muted: #93A3B2; --line: #2B3945;
     --accent: #FF7442; --accent-soft: #3A2117; --on-accent: #1A0D07; --route: #6AA8EA;
-    --bad: #FF5C5C; --bad-soft: #3A1A1C; --ok: #44C67F; --ok-soft: #15301F; --map-bg: #121A21;
+    --bad: #FF5C5C; --bad-soft: #3A1A1C; --ok: #44C67F; --ok-soft: #15301F; --ref: #A98BF5; --ref-soft: #2A2240; --map-bg: #121A21;
     --mun-fill: #1C2730; --mun-line: #33424F; --mun-text: #8C9BA8;
     --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 18px rgba(0,0,0,.35);
     color-scheme: dark;
@@ -42,7 +44,7 @@
 :root[data-theme="dark"] {
   --bg: #0E151B; --surface: #16212A; --surface-2: #1C2832; --ink: #E5ECF2; --muted: #93A3B2; --line: #2B3945;
   --accent: #FF7442; --accent-soft: #3A2117; --on-accent: #1A0D07; --route: #6AA8EA;
-  --bad: #FF5C5C; --bad-soft: #3A1A1C; --ok: #44C67F; --ok-soft: #15301F; --map-bg: #121A21;
+  --bad: #FF5C5C; --bad-soft: #3A1A1C; --ok: #44C67F; --ok-soft: #15301F; --ref: #A98BF5; --ref-soft: #2A2240; --map-bg: #121A21;
   --mun-fill: #1C2730; --mun-line: #33424F; --mun-text: #8C9BA8;
   --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 18px rgba(0,0,0,.35);
   color-scheme: dark;
@@ -211,6 +213,11 @@ details.adv[open] summary { margin-bottom: 8px; }
 .item { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 6px; border-left: 4px solid var(--bad); }
 .item.rep { border-left-color: var(--ok); }
 .item.hl { box-shadow: 0 0 0 2px var(--accent); }
+.item.refitem { border-left-color: var(--ref); }
+.pill.ref { background: var(--ref-soft); color: var(--ref); }
+.ref-pin { display: block; width: 14px; height: 14px; background: var(--ref); border: 2px solid var(--surface); transform: rotate(45deg); box-shadow: 0 1px 4px rgba(0,0,0,.4); margin: 1px; }
+.ref-lbl { display: none; position: absolute; left: 18px; top: -2px; white-space: nowrap; font: 600 11px/1.2 var(--f-body); color: var(--ref); background: color-mix(in srgb, var(--surface) 85%, transparent); padding: 1px 4px; border-radius: 4px; pointer-events: none; }
+#map.zoom-alto .ref-lbl { display: block; }
 .item-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
 .pill { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; }
 .pill.bad { background: var(--bad-soft); color: var(--bad); }
@@ -332,7 +339,7 @@ details.adv[open] summary { margin-bottom: 8px; }
     <div class="pickbar" id="pickbar" hidden><span id="pickText">Toque no mapa</span><button type="button" id="pickCancel">Cancelar</button></div>
     <div class="maphint" id="mapHint" hidden>Aqui dentro do Claude o fundo mostra os municípios de SP (ruas e satélite são bloqueados). Para ver o local real, use “Google Maps” no ponto.</div>
     <div class="loadnote" id="loadNote" hidden></div>
-    <div class="legend" aria-hidden="true"><span><i style="background:var(--bad)"></i>Aberto</span><span><i style="background:var(--ok)"></i>Reparado</span><span><i style="background:var(--accent)"></i>Novo</span></div>
+    <div class="legend" aria-hidden="true"><span><i style="background:var(--bad)"></i>Aberto</span><span><i style="background:var(--ok)"></i>Reparado</span><span><i style="background:var(--accent)"></i>Novo</span><span><i style="background:var(--ref);border-radius:2px;transform:rotate(45deg)"></i>Referência</span></div>
   </section>
 
   <section class="panel">
@@ -448,6 +455,7 @@ details.adv[open] summary { margin-bottom: 8px; }
             <button type="button" data-st="all" aria-pressed="true">Todos</button>
             <button type="button" data-st="aberto" aria-pressed="false">Abertos</button>
             <button type="button" data-st="reparado" aria-pressed="false">Reparados</button>
+            <button type="button" data-st="ref" aria-pressed="false">Referências</button>
           </div>
           <select id="fltArea" aria-label="Filtrar por área"><option value="">Todas as áreas</option></select>
         </div>
@@ -620,7 +628,7 @@ function parseKml(text) {
     for (const pt of pm.getElementsByTagNameNS('*', 'Point')) {
       const c = pt.getElementsByTagNameNS('*', 'coordinates')[0];
       const coords = c ? parseCoords(c.textContent) : [];
-      if (coords.length) points.push({ name, path, area, coord: coords[0] });
+      if (coords.length) points.push({ name, path, area, coord: coords[0], desc: textoDesc(childText(pm, 'description')) });
     }
     for (const pg of pm.getElementsByTagNameNS('*', 'Polygon')) {
       const c = pg.getElementsByTagNameNS('*', 'coordinates')[0];
@@ -629,6 +637,22 @@ function parseKml(text) {
     }
   }
   return { docName, lines, points, polys, appBreaks };
+}
+// Descrição do KMZ (HTML) em texto simples
+function textoDesc(html) {
+  if (!html) return '';
+  const t = String(html).replace(/<br\s*\/?>|<\/(div|p|li|tr)>/gi, '\n').replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+  return t.split('\n').map(s => s.trim()).filter(Boolean).join('\n').slice(0, 800);
+}
+// Pontos de referência: têm “referência” no nome ou uma medida no nome (ex.: “22KM ILHS”, “2270KM DE BTU”, “km 138+308”).
+// Pontos que são registros de rompimento (RAL, ROMP, RUP) ficam de fora — esses já estão na lista de rompimentos.
+const RE_MEDIDA = /\d+(?:[.,]\d+)?\s*(?:km|m)\b|\bkm\s*\d/i;
+function isReferencia(p) {
+  const n = p.name || '';
+  if (/\bral\b|ral\s*[-:]?\s*\d|romp|\brup\b/i.test(n)) return false;
+  if (/ral\s*[-:]?\s*\d{4,}|rompiment/i.test(p.desc || '')) return false;
+  return /refer[eê]ncia/i.test(n) || RE_MEDIDA.test(n);
 }
 function stripAppFolder(text) {
   if (!text.includes('rompimentos-app')) return text;
@@ -824,8 +848,12 @@ const polyLayer = L.layerGroup().addTo(map);
 const lineLayer = L.layerGroup().addTo(map);
 const pointLayer = L.layerGroup().addTo(map);
 const routeLayer = L.layerGroup().addTo(map);
+const refLayer = L.layerGroup().addTo(map);
 const breakLayer = L.layerGroup().addTo(map);
 let previewMarker = null;
+const refMarkers = new Map();
+const zoomLbl = () => $('#map').classList.toggle('zoom-alto', map.getZoom() >= 13);
+map.on('zoomend', zoomLbl);
 const breakMarkers = new Map();
 
 let tilesOn = false;
@@ -875,7 +903,23 @@ function renderBase() {
       .bindTooltip(esc(ln.name || 'Rota sem nome') + (ln.area ? ' · ' + esc(ln.area) : ''), { sticky: true }).addTo(lineLayer);
   }
   const small = P.points.length > 2000;
+  refLayer.clearLayers(); refMarkers.clear();
+  S.refs = [];
+  P.points.forEach((p, i) => { if (p.name && isReferencia(p)) { p.ref = true; p.refId = 'ref' + i; S.refs.push(p); } });
+  for (const p of S.refs) {
+    const curto = p.name.length > 40 ? p.name.slice(0, 40) + '…' : p.name;
+    const m = L.marker(p.coord, { icon: L.divIcon({ className: '', html: `<span class="ref-pin"></span><span class="ref-lbl">${esc(curto)}</span>`, iconSize: [16, 16], iconAnchor: [8, 8] }), keyboard: false, zIndexOffset: 200, bubblingMouseEvents: false })
+      .bindTooltip(esc(p.name), { direction: 'top', offset: [0, -8] });
+    m.on('click', () => {
+      if (S.pick === 'break') { S.ponto = { lat: r6(p.coord[0]), lng: r6(p.coord[1]), fonte: 'mapa' }; endPick(); recalc({ keepManual: true }); }
+      else if (S.pick) setPlace(S.pick, { name: p.name, lat: p.coord[0], lng: p.coord[1] });
+      else focusRef(p.refId, false);
+    });
+    m.addTo(refLayer); refMarkers.set(p.refId, m);
+  }
+  zoomLbl();
   for (const p of P.points) {
+    if (p.ref) continue;
     const m = L.circleMarker(p.coord, { radius: small ? 3 : 5, color: ink, weight: 1.5, fillColor: surf, fillOpacity: 1, bubblingMouseEvents: false });
     m.bindTooltip(esc(p.name || 'Ponto sem nome'), { direction: 'top' });
     m.on('click', () => {
@@ -1286,8 +1330,46 @@ $('#form').addEventListener('submit', async e => {
 });
 
 /* ================= pesquisa ================= */
+function visibleRefs() {
+  if (S.filter.status !== 'all' && S.filter.status !== 'ref') return [];
+  const terms = norm(S.filter.q).split(' ').filter(Boolean);
+  return (S.refs || []).filter(p =>
+    (!S.filter.area || p.area === S.filter.area) &&
+    (!terms.length || (() => { const h = norm([p.name, p.desc, p.path.join(' ')].join(' ')); return terms.every(t => h.includes(t)); })())
+  );
+}
+function refHtml(p) {
+  const pasta = p.path.slice(-2).join(' / ');
+  return `<li class="item refitem" data-ref="${esc(p.refId)}">
+      <div class="item-head"><span class="pill ref">Referência</span>${p.area ? `<span>${esc(p.area)}</span>` : ''}</div>
+      <div class="item-title"><b>${esc(p.name)}</b></div>
+      <div class="coords mono">${p.coord[0].toFixed(6)}, ${p.coord[1].toFixed(6)}</div>
+      ${pasta ? `<div class="coords">Pasta: ${esc(pasta)}</div>` : ''}
+      ${p.desc ? `<p class="obs">${esc(p.desc.length > 400 ? p.desc.slice(0, 400) + '…' : p.desc)}</p>` : ''}
+      <div class="item-actions">
+        <button type="button" class="btn sm" data-act="refmap">Ver no mapa</button>
+        <a class="btn sm" href="${gmapsUrl(p.coord[0], p.coord[1])}" target="_blank" rel="noopener">Google Maps</a>
+        <button type="button" class="btn sm" data-copy="${p.coord[0].toFixed(6)}, ${p.coord[1].toFixed(6)}">Copiar</button>
+        ${S.canWrite ? '<button type="button" class="btn sm" data-act="reforig">Medir a partir daqui</button>' : ''}
+      </div></li>`;
+}
+function focusRef(refId, pan = true) {
+  const p = (S.refs || []).find(x => x.refId === refId); if (!p) return;
+  if (!visibleRefs().some(x => x.refId === refId)) {
+    S.filter = { q: '', status: 'ref', area: '' }; $('#q').value = '';
+    $$('.seg button[data-st]').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.st === 'ref')));
+    renderList(); renderBreakMarkers();
+  }
+  showTab('pesquisar');
+  if (pan) { map.setView(p.coord, Math.max(map.getZoom(), 15)); if (window.innerWidth < 900) $('.mapbox').scrollIntoView({ behavior: 'smooth' }); }
+  const m = refMarkers.get(refId); if (m) m.openTooltip();
+  $$('.item.hl').forEach(x => x.classList.remove('hl'));
+  const li = $(`.item[data-ref="${CSS.escape(refId)}"]`);
+  if (li) { li.classList.add('hl'); if (!pan || window.innerWidth >= 900) li.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+}
 function visibleBreaks() {
   const terms = norm(S.filter.q).split(' ').filter(Boolean);
+  if (S.filter.status === 'ref') return [];
   return S.breaks.filter(b =>
     (S.filter.status === 'all' || b.status === S.filter.status) &&
     (!S.filter.area || b.area === S.filter.area) &&
@@ -1296,9 +1378,11 @@ function visibleBreaks() {
 }
 function fmtDate(iso) { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
 function renderList() {
-  const list = visibleBreaks();
+  const list = visibleBreaks(), refs = visibleRefs();
   const open = list.filter(b => b.status !== 'reparado').length;
-  $('#summary').innerHTML = `<b>${list.length}</b> ${list.length === 1 ? 'rompimento' : 'rompimentos'} · <b>${open}</b> abertos · <b>${list.length - open}</b> reparados`;
+  $('#summary').innerHTML = S.filter.status === 'ref'
+    ? `<b>${refs.length}</b> ${refs.length === 1 ? 'referência' : 'referências'}`
+    : `<b>${list.length}</b> ${list.length === 1 ? 'rompimento' : 'rompimentos'} · <b>${open}</b> abertos · <b>${list.length - open}</b> reparados${refs.length ? ` · <b>${refs.length}</b> referências` : ''}`;
   const allOpen = S.breaks.filter(b => b.status !== 'reparado').length;
   $('#badge').textContent = allOpen ? String(allOpen) : '';
   // áreas
@@ -1310,9 +1394,9 @@ function renderList() {
     ul.innerHTML = `<li class="empty-state"><h3>Nenhum rompimento ainda</h3>Quando você salvar um rompimento na aba <b>Marcar</b>, ele aparece aqui. Depois é só digitar a cidade (ex.: Penápolis, Araçatuba, Andradina) ou a área para ver todos dela.</li>`;
     return;
   }
-  if (!list.length) { ul.innerHTML = `<li class="empty-state">Nada encontrado para essa pesquisa.</li>`; return; }
+  if (!list.length && !refs.length) { ul.innerHTML = `<li class="empty-state">Nada encontrado para essa pesquisa.</li>`; return; }
   const rw = S.canWrite;
-  ul.innerHTML = list.map(b => {
+  ul.innerHTML = refs.slice(0, 300).map(refHtml).join('') + list.map(b => {
     const rep = b.status === 'reparado';
     return `<li class="item ${rep ? 'rep' : ''}" data-id="${esc(b.id)}">
       <div class="item-head"><span class="pill ${rep ? 'ok' : 'bad'}">${rep ? 'Reparado' : 'Aberto'}</span><time>${esc(fmtDate(b.dataHora))}</time>${b.area ? `<span>· ${esc(b.area)}</span>` : ''}</div>
@@ -1349,8 +1433,8 @@ $$('.seg button[data-st]').forEach(b => b.addEventListener('click', () => {
 }));
 $('#fltArea').addEventListener('change', e => { S.filter.area = e.target.value; renderList(); renderBreakMarkers(); });
 $('#fitAll').addEventListener('click', () => {
-  const pts = visibleBreaks().map(b => [b.lat, b.lng]);
-  if (!pts.length) { toast('Nenhum rompimento nesta pesquisa.'); return; }
+  const pts = [...visibleBreaks().map(b => [b.lat, b.lng]), ...visibleRefs().map(p => p.coord)];
+  if (!pts.length) { toast('Nada nesta pesquisa.'); return; }
   if (pts.length === 1) map.setView(pts[0], 15); else map.fitBounds(coreBounds(pts), { padding: [40, 40], maxZoom: 15 });
   if (window.innerWidth < 900) $('.mapbox').scrollIntoView({ behavior: 'smooth' });
 });
@@ -1372,6 +1456,20 @@ function focusBreak(id, pan = true) {
 const armed = new WeakMap();
 $('#list').addEventListener('click', async e => {
   const btn = e.target.closest('button[data-act]'); if (!btn) return;
+  const refLi = btn.closest('.refitem');
+  if (refLi) {
+    const p = (S.refs || []).find(x => x.refId === refLi.dataset.ref); if (!p) return;
+    if (btn.dataset.act === 'refmap') focusRef(p.refId, true);
+    else if (btn.dataset.act === 'reforig') {
+      // usa a referência como origem da medida do OTDR
+      showTab('marcar'); setModo('otdr', { noAuto: true });
+      setPlace('origin', { name: p.name, lat: p.coord[0], lng: p.coord[1] });
+      fOrig.value = p.name; updateHint('origin');
+      toast('Referência como origem. Agora escolha o destino (sentido) e a distância.');
+      fDest.focus();
+    }
+    return;
+  }
   const id = btn.closest('.item').dataset.id; const b = S.breaks.find(x => x.id === id); if (!b) return;
   const act = btn.dataset.act;
   if (act === 'map') focusBreak(id, true);
@@ -1488,7 +1586,7 @@ function applyBase(text, meta) {
   catch (err) { toast(err.message); setLoading(''); return; }
   S.baseKml = text; S.baseMeta = meta || null;
   S.net = null; // a rede (grafo) é montada só quando for calcular um ponto
-  buildPlaces(); renderBase(); renderAreaList(); updateBaseInfo();
+  buildPlaces(); renderBase(); renderAreaList(); renderList(); updateBaseInfo();
   setLoading('');
   updateHint('origin'); updateHint('dest');
   if (S.origin && S.dest) recalc({ keepManual: true, noPan: true });
