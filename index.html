@@ -673,33 +673,63 @@ function buildNet(lines) {
     if ((y1 - y0 + 1) * (x1 - x0 + 1) > 2500) return;
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const k = gk(y, x); let arr = sg.get(k); if (!arr) sg.set(k, arr = []); arr.push(si); }
   });
-  const SNAP = 35;
+  // Emendas: cada ponta de cabo se liga a TODOS os outros cabos que passam a até SNAP metros
+  // (antes era só ao mais próximo; com traçados duplicados no KMZ, a ponta se ligava à própria cópia
+  // e ignorava o cabo vizinho — era isso que deixava trechos “soltos”).
+  const SNAP = 35, TOQUE = 3, nOrig = nodes.length;
   let joins = 0;
+  const ligado = new Set();
+  const liga = (a, b, w) => { if (a === b) return; const k = a < b ? a + ':' + b : b + ':' + a; if (ligado.has(k)) return; ligado.add(k); edge(a, b, w); joins++; };
   for (const [n, li] of ends) {
-    if (lineOf[n] === -2) continue;
     const p = nodes[n], cy = Math.floor(p[0] / C), cx = Math.floor(p[1] / C);
-    let best = -1, bd = SNAP;
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-      const arr = ng.get(gk(cy + dy, cx + dx)); if (!arr) continue;
-      for (const j of arr) { if (j === n || lineOf[j] === li) continue; const d = hav(p, nodes[j]); if (d < bd) { bd = d; best = j; } }
-    }
-    if (best >= 0) { edge(n, best, bd); joins++; continue; }
-    let bs = null, bsd = SNAP; const seen = new Set();
+    const porLinha = new Map(); const seen = new Set();
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
       const arr = sg.get(gk(cy + dy, cx + dx)); if (!arr) continue;
       for (const si of arr) {
         if (seen.has(si)) continue; seen.add(si);
         const s = segs[si]; if (s[3] === li) continue;
         const pr = projectOnSeg(p, nodes[s[0]], nodes[s[1]]);
-        if (pr.d < bsd) { bsd = pr.d; bs = { s, pr }; }
+        if (pr.d >= SNAP) continue;
+        const b = porLinha.get(s[3]); if (!b || pr.d < b.pr.d) porLinha.set(s[3], { s, pr });
       }
     }
-    if (bs) {
-      const m = nodes.length; nodes.push(bs.pr.pt); lineOf.push(-2); adj.push([]);
-      edge(m, bs.s[0], bs.s[2] * bs.pr.t); edge(m, bs.s[1], bs.s[2] * (1 - bs.pr.t)); edge(n, m, bsd); joins++;
+    for (const { s, pr } of porLinha.values()) {
+      if (s[0] === n || s[1] === n) continue; // já é o mesmo ponto
+      if (pr.t <= 0.001 || pr.t >= 0.999) { const alvo = pr.t <= 0.001 ? s[0] : s[1]; liga(n, alvo, hav(p, nodes[alvo])); continue; }
+      const m = nodes.length; nodes.push(pr.pt); lineOf.push(-2); adj.push([]);
+      edge(m, s[0], s[2] * pr.t); edge(m, s[1], s[2] * (1 - pr.t)); liga(n, m, pr.d);
     }
   }
-  return { nodes, adj, segs, joins };
+  // Vértices de cabos diferentes que praticamente se tocam (até TOQUE m) também viram emenda
+  for (let i = 0; i < nOrig; i++) {
+    const p = nodes[i], cy = Math.floor(p[0] / C), cx = Math.floor(p[1] / C);
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const arr = ng.get(gk(cy + dy, cx + dx)); if (!arr) continue;
+      for (const j of arr) {
+        if (j <= i || (lineOf[i] === lineOf[j] && lineOf[i] !== -2)) continue;
+        const d = hav(p, nodes[j]); if (d <= TOQUE) liga(i, j, d);
+      }
+    }
+  }
+  // Pontes: ponta de cabo que termina “no nada” (sem outro cabo) se emenda ao pedaço de rede
+  // mais próximo, se estiver a até PONTE metros. Buracos maiores ficam como estão.
+  const PONTE = 300, RC = Math.ceil(PONTE / 50);
+  const par = new Int32Array(nodes.length); for (let i = 0; i < par.length; i++) par[i] = i;
+  const raiz = x => { while (par[x] !== x) { par[x] = par[par[x]]; x = par[x]; } return x; };
+  const une = (a, b) => { a = raiz(a); b = raiz(b); if (a !== b) par[a] = b; };
+  for (let i = 0; i < adj.length; i++) for (let k = 0; k < adj[i].length; k += 2) une(i, adj[i][k]);
+  let pontes = 0; const pontesLista = [];
+  for (const [n] of ends) {
+    const p = nodes[n], cy = Math.floor(p[0] / C), cx = Math.floor(p[1] / C), rn = raiz(n);
+    let best = -1, bd = PONTE;
+    for (let dy = -RC; dy <= RC; dy++) for (let dx = -RC; dx <= RC; dx++) {
+      const arr = ng.get(gk(cy + dy, cx + dx)); if (!arr) continue;
+      for (const j of arr) { if (raiz(j) === rn) continue; const d = hav(p, nodes[j]); if (d < bd) { bd = d; best = j; } }
+    }
+    if (best >= 0) { liga(n, best, bd); une(n, best); pontes++; pontesLista.push([n, best, bd]); }
+  }
+  const pontesSet = new Map(); pontesLista.forEach(([a, b, d]) => { pontesSet.set(a + ':' + b, d); pontesSet.set(b + ':' + a, d); });
+  return { nodes, adj, segs, joins, pontes, pontesSet };
 }
 function nearestSeg(net, p) {
   const k = Math.cos(p[0] * RAD), N = net.nodes, segs = net.segs;
@@ -764,7 +794,9 @@ function computeRoute(o, d) {
   const r = shortest(net, O, D, extra);
   if (!r) return { coords: [po, pd], length: hav(po, pd), network: false, broken: true, snapO: so.d, snapD: sd.d };
   const coords = r.path.map(v => v === O ? so.pt : v === D ? sd.pt : net.nodes[v]);
-  return { coords, length: r.length, network: true, snapO: so.d, snapD: sd.d };
+  const pontes = [];
+  if (net.pontesSet) for (let k = 1; k < r.path.length; k++) { const d = net.pontesSet.get(r.path[k - 1] + ':' + r.path[k]); if (d !== undefined) pontes.push(d); }
+  return { coords, length: r.length, network: true, snapO: so.d, snapD: sd.d, pontes, reta: hav(po, pd) };
 }
 function getNet() {
   if (!S.net && S.parsed) S.net = buildNet(S.parsed.lines);
@@ -1146,6 +1178,8 @@ function renderResult() {
   if (!r.network) warns.push(r.broken ? 'Não achei um caminho ligado entre os dois pontos na rede do KMZ. Usei linha reta.' : 'Sem rede carregada: usei linha reta entre os pontos. Carregue o KMZ na aba Mapa base.');
   if (r.network && r.snapO > 300) warns.push(`A origem fica a ${fmtDist(r.snapO)} da rede. A medida começa no ponto da rede mais próximo dela.`);
   if (r.network && r.snapD > 300) warns.push(`O destino fica a ${fmtDist(r.snapD)} da rede.`);
+  if (r.network && r.reta > 2000 && r.length > 2.2 * r.reta) warns.push(`Atenção: pela rede deu ${fmtDist(r.length)}, bem mais que a distância em linha reta (${fmtDist(r.reta)}). Provavelmente falta um trecho de cabo no KMZ entre esses pontos e o caminho está dando a volta. Confira o ponto antes de usar.`);
+  if (r.pontes && r.pontes.length) warns.push(`O caminho passa por ${r.pontes.length === 1 ? 'um trecho que não está desenhado no KMZ' : r.pontes.length + ' trechos que não estão desenhados no KMZ'} (${r.pontes.map(d => fmtDist(d)).join(', ')}). O app emendou em linha reta.`);
   if (c.distM === undefined) {
     el.innerHTML = `<span class="k">Trecho pela rede</span><span class="meta"><b>${esc(S.origin.name)}</b> → <b>${esc(S.dest.name)}</b>: <span class="mono">${fmtDist(r.length)}</span></span>
       ${warns.map(w => `<span class="warn">${esc(w)}</span>`).join('')}<span class="meta">Agora informe a distância.</span>`;
@@ -1985,6 +2019,8 @@ async function init() {
   }
   await initLocal();
 }
+// Ferramenta de diagnóstico da rede (só aparece com ?debug no endereço)
+if (/[?&]debug\b/.test(location.search)) window.__romp = { S, map, computeRoute, getNet, nearestSeg, buildNet, hav };
 init();
 })();
 </script>
