@@ -1563,7 +1563,7 @@ function renderList() {
   ul.innerHTML = refs.slice(0, 300).map(refHtml).join('') + list.map(breakHtml).join('');
 }
 function breakHtml(b) {
-  const rw = S.canWrite;
+  const rw = S.canEdit !== false && S.canWrite;
   {
     const rep = b.status === 'reparado';
     return `<li class="item ${rep ? 'rep' : ''}" data-id="${esc(b.id)}">
@@ -2217,7 +2217,7 @@ function setCriar(on) {
   $('#lgSenha').autocomplete = on ? 'new-password' : 'current-password';
 }
 // Versão do app: ao voltar para o app, confere se o site tem versão mais nova e oferece atualizar
-const APP_VERSAO = '2026-11-19i';
+const APP_VERSAO = '2026-11-19j';
 function checarVersao() {
   if (!navigator.onLine) return;
   fetch(location.pathname + '?versao=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => {
@@ -2325,14 +2325,15 @@ async function initFirebase() {
 async function startSession(u) {
   const fs = S.api.fs, email = (u.email || '').toLowerCase();
   // Conta com senha entra depois de confirmar o e-mail OU de o responsável aprovar (as regras do Firebase decidem).
-  S.userId = u.uid; S.userEmail = email; S.isAdmin = false;
+  S.userId = u.uid; S.userEmail = email; S.isAdmin = false; S.isDono = false;
   try {
     // Só quem tem acesso consegue ler a própria entrada. O responsável (definido nas regras do Firebase)
     // consegue ler mesmo antes de existir a entrada, e então ela é criada como administrador.
     const ref = fs.collection('permitidos').doc(email);
     const d = await ref.get({ source: 'server' }).catch(() => ref.get());
-    if (d.exists) S.isAdmin = d.data().admin === true;
-    else { await ref.set({ admin: true, liberadoEm: new Date().toISOString() }); S.isAdmin = true; }
+    // dono = o responsável (só ele pode gravar “dono” na lista, as regras garantem); editor = só marca rompimentos novos
+    if (d.exists) { S.isAdmin = d.data().admin === true; S.isDono = d.data().dono === true; }
+    else { await ref.set({ admin: true, dono: true, liberadoEm: new Date().toISOString() }); S.isAdmin = true; S.isDono = true; }
   } catch (_) {
     if (!email) { showLogin('Essa conta não tem e-mail. Entre com outra conta.', true); return; }
     // Sem acesso ainda: registra o pedido para o responsável aprovar (vale para Google e para e-mail/senha)
@@ -2344,8 +2345,8 @@ async function startSession(u) {
   }
   S.tentouEntrar = false;
   $('#login').hidden = true; $('#sairBtn').hidden = false;
-  // Só o responsável (e quem ele marcar como administrador) marca e edita; os demais só consultam.
-  S.canWrite = S.isAdmin; S.canBase = S.isAdmin;
+  // Responsável: faz tudo. Editor: só marca rompimentos novos (não edita, não exclui, não muda mapa nem acessos). Demais: só consultam.
+  S.canWrite = S.isAdmin; S.canEdit = S.isDono; S.canBase = S.isDono;
   $('#roNote').textContent = 'Você pode consultar e pesquisar. Só o responsável marca e edita rompimentos.';
   $('#t-marcar').hidden = !S.isAdmin;
   if (!S.isAdmin) showTab('pesquisar');
@@ -2382,7 +2383,7 @@ async function startSession(u) {
       } catch (e) { console.error(e); setLoading(''); toast('Não consegui abrir o mapa base salvo.'); updateBaseInfo(); }
     } else { S.baseMeta = d; updateBaseInfo(); }
   }, () => {}));
-  if (S.isAdmin) {
+  if (S.isDono) {
     $('#acessoBox').hidden = false;
     subs.push(fs.collection('permitidos').onSnapshot(snap => { S.acessos = snap.docs.map(d => Object.assign({ email: d.id }, d.data())); renderAcessos(); }, () => {}));
     subs.push(fs.collection('pedidos').onSnapshot(snap => { S.pedidos = snap.docs.map(d => Object.assign({ uid: d.id }, d.data())); renderAcessos(); }, () => {}));
@@ -2433,7 +2434,7 @@ function renderAcessos() {
   });
   const rows = lista.slice().sort((a, b) => (b.admin === true) - (a.admin === true) || a.email.localeCompare(b.email)).map(p => {
     const eu = p.email === S.userEmail;
-    return `<li><span>${textoPresenca(p.email)} ${esc(p.email)} <small>${eu ? '· você' : ''}${p.admin ? ' · <b>editor</b> (marca e edita)' : ' · só consulta'}</small></span>${eu ? '' : `<span class="row"><button type="button" class="btn sm" data-editor-toggle="${esc(p.email)}">${p.admin ? 'Tirar edição' : 'Dar edição'}</button><button type="button" class="btn sm danger" data-rm="${esc(p.email)}">Remover</button></span>`}</li>`;
+    return `<li><span>${textoPresenca(p.email)} ${esc(p.email)} <small>${eu ? '· você' : ''}${p.dono ? ' · <b>responsável</b>' : p.admin ? ' · <b>editor</b> (só marca novos)' : ' · só consulta'}</small></span>${eu ? '' : `<span class="row"><button type="button" class="btn sm" data-editor-toggle="${esc(p.email)}">${p.admin ? 'Tirar edição' : 'Dar edição'}</button><button type="button" class="btn sm danger" data-rm="${esc(p.email)}">Remover</button></span>`}</li>`;
   });
   ul.innerHTML = rowsP.join('') + rows.join('');
   const n = pedidos.length; const b = $('#badgeBase'); if (b) b.textContent = n ? String(n) : '';
@@ -2461,7 +2462,7 @@ $('#acessos').addEventListener('click', async e => {
   const tg = e.target.closest('[data-editor-toggle]');
   if (tg) {
     const em = tg.dataset.editorToggle, atual = (S.acessos || []).find(x => x.email === em); if (!atual) return;
-    try { await S.api.fs.collection('permitidos').doc(em).update({ admin: !(atual.admin === true) }); toast(atual.admin ? `${em} agora só consulta.` : `${em} agora pode marcar e editar.`); }
+    try { await S.api.fs.collection('permitidos').doc(em).update({ admin: !(atual.admin === true) }); toast(atual.admin ? `${em} agora só consulta.` : `${em} agora pode marcar rompimentos novos.`); }
     catch (err) { toast('Não foi possível alterar (' + ((err && err.code) || 'erro') + ').'); }
     return;
   }
