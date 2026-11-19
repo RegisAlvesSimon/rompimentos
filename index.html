@@ -222,6 +222,10 @@ details.adv[open] summary { margin-bottom: 8px; }
 @media (min-width: 900px) { .detalhe { left: 10px; right: auto; bottom: 46px; width: 380px; max-height: 70%; padding: 0; } }
 .pill.ref { background: var(--ref-soft); color: var(--ref); }
 .pill.perto { background: var(--ink); color: var(--bg); }
+.pres { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); margin-right: 4px; white-space: nowrap; }
+.pres::before { content: ''; width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
+.pres.on { color: var(--ok); font-weight: 600; }
+.pres.on::before { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent); }
 .medir { border: 2px solid var(--accent); border-radius: 12px; padding: 12px; margin-bottom: 14px; background: var(--surface); }
 .medir-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .medir-de { margin: 6px 0 10px; }
@@ -2177,9 +2181,10 @@ async function gunzipB64(b64) {
   return await new Response(new Blob([u]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
 }
 const subs = [];
+let presencaHb = null, presencaUid = null;
 function stopSubs() { while (subs.length) { try { subs.pop()(); } catch (_) {} } }
 function showLogin(msg, warn) {
-  stopSubs();
+  stopSubs(); clearInterval(presencaHb); presencaUid = null;
   S.breaks = []; renderAll();
   const m = $('#loginMsg'); m.textContent = msg || 'Use a conta que foi liberada para ver e marcar os rompimentos.'; m.className = 'hint' + (warn ? ' warn' : '');
   $('#login').hidden = false; $('#sairBtn').hidden = !warn; $('#acessoBox').hidden = true;
@@ -2212,7 +2217,7 @@ function setCriar(on) {
   $('#lgSenha').autocomplete = on ? 'new-password' : 'current-password';
 }
 // Versão do app: ao voltar para o app, confere se o site tem versão mais nova e oferece atualizar
-const APP_VERSAO = '2026-11-19g';
+const APP_VERSAO = '2026-11-19h';
 function checarVersao() {
   if (!navigator.onLine) return;
   fetch(location.pathname + '?versao=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => {
@@ -2310,7 +2315,11 @@ async function initFirebase() {
     const em = $('#lgEmail').value.trim(); if (!em) { toast('Digite seu e-mail primeiro.'); $('#lgEmail').focus(); return; }
     try { await auth.sendPasswordResetEmail(em); toast('Se esse e-mail tiver conta, chega um link para criar nova senha.'); } catch (_) { toast('Não foi possível enviar o e-mail agora.'); }
   });
-  $('#sairBtn').addEventListener('click', () => auth.signOut());
+  $('#sairBtn').addEventListener('click', async () => {
+    clearInterval(presencaHb);
+    if (presencaUid) { try { await S.api.fs.collection('presenca').doc(presencaUid).set({ email: S.userEmail, ativo: false, visto: firebase.firestore.FieldValue.serverTimestamp() }); } catch (_) {} }
+    presencaUid = null; auth.signOut();
+  });
   auth.onAuthStateChanged(u => { if (u) startSession(u); else showLogin(); });
 }
 async function startSession(u) {
@@ -2342,6 +2351,7 @@ async function startSession(u) {
   if (!S.isAdmin) showTab('pesquisar');
   setChip('Online · ' + email, 'cloud'); if (S.updOnline) S.updOnline();
   applyPerms(); updateBaseInfo(); shareInfo();
+  iniciarPresenca(u.uid, email);
   let loaded = false;
   const timer = setTimeout(() => { if (!loaded) toast('Ainda buscando os rompimentos… confira a internet.'); }, 10000);
   subs.push(fs.collection('rompimentos').onSnapshot({ includeMetadataChanges: false }, snap => {
@@ -2376,7 +2386,41 @@ async function startSession(u) {
     $('#acessoBox').hidden = false;
     subs.push(fs.collection('permitidos').onSnapshot(snap => { S.acessos = snap.docs.map(d => Object.assign({ email: d.id }, d.data())); renderAcessos(); }, () => {}));
     subs.push(fs.collection('pedidos').onSnapshot(snap => { S.pedidos = snap.docs.map(d => Object.assign({ uid: d.id }, d.data())); renderAcessos(); }, () => {}));
+    subs.push(fs.collection('presenca').onSnapshot(snap => {
+      S.presenca = {};
+      snap.docs.forEach(d => { const x = d.data(); if (!x.email) return; const t = x.visto && x.visto.toMillis ? x.visto.toMillis() : 0; const cur = S.presenca[x.email]; if (!cur || t > cur.t) S.presenca[x.email] = { t, ativo: x.ativo === true }; });
+      renderAcessos();
+    }, () => {}));
+    if (!S.presencaTimer) S.presencaTimer = setInterval(() => { if (!$('#p-base').hidden) renderAcessos(); }, 30000);
   } else $('#acessoBox').hidden = true;
+}
+/* ---- quem está com o app aberto: cada um avisa a cada minuto; só o responsável vê a lista ---- */
+function iniciarPresenca(uid, email) {
+  const fs = S.api.fs, FV = firebase.firestore.FieldValue;
+  presencaUid = uid;
+  const ref = fs.collection('presenca').doc(uid);
+  const bater = ativo => {
+    if (!firebase.auth().currentUser || firebase.auth().currentUser.uid !== uid) { clearInterval(presencaHb); return; }
+    ref.set({ email, ativo, visto: FV.serverTimestamp() }).catch(() => {});
+  };
+  clearInterval(presencaHb);
+  const ligar = () => { clearInterval(presencaHb); bater(true); presencaHb = setInterval(() => bater(true), 60000); };
+  if (document.visibilityState !== 'hidden') ligar();
+  if (!S.presencaEventos) {
+    S.presencaEventos = true;
+    document.addEventListener('visibilitychange', () => {
+      if (!presencaUid) return;
+      if (document.visibilityState === 'hidden') { clearInterval(presencaHb); fs.collection('presenca').doc(presencaUid).set({ email: S.userEmail, ativo: false, visto: FV.serverTimestamp() }).catch(() => {}); }
+      else if (presencaUid === (firebase.auth().currentUser || {}).uid) iniciarPresenca(presencaUid, S.userEmail);
+    });
+  }
+}
+function textoPresenca(email) {
+  const p = (S.presenca || {})[email]; if (!p || !p.t) return '<span class="pres off">nunca visto</span>';
+  const min = (Date.now() - p.t) / 60000;
+  if (p.ativo && min < 2.5) return '<span class="pres on">online agora</span>';
+  const txt = min < 60 ? `visto há ${Math.max(1, Math.round(min))} min` : min < 1440 ? `visto há ${Math.round(min / 60)} h` : min < 2880 ? 'visto ontem' : `visto em ${new Date(p.t).toLocaleDateString('pt-BR')}`;
+  return `<span class="pres off">${txt}</span>`;
 }
 function renderAcessos() {
   const ul = $('#acessos');
@@ -2389,7 +2433,7 @@ function renderAcessos() {
   });
   const rows = lista.slice().sort((a, b) => (b.admin === true) - (a.admin === true) || a.email.localeCompare(b.email)).map(p => {
     const eu = p.email === S.userEmail;
-    return `<li><span>${esc(p.email)} <small>${eu ? '· você' : ''}${p.admin ? ' · <b>editor</b> (marca e edita)' : ' · só consulta'}</small></span>${eu ? '' : `<span class="row"><button type="button" class="btn sm" data-editor-toggle="${esc(p.email)}">${p.admin ? 'Tirar edição' : 'Dar edição'}</button><button type="button" class="btn sm danger" data-rm="${esc(p.email)}">Remover</button></span>`}</li>`;
+    return `<li><span>${textoPresenca(p.email)} ${esc(p.email)} <small>${eu ? '· você' : ''}${p.admin ? ' · <b>editor</b> (marca e edita)' : ' · só consulta'}</small></span>${eu ? '' : `<span class="row"><button type="button" class="btn sm" data-editor-toggle="${esc(p.email)}">${p.admin ? 'Tirar edição' : 'Dar edição'}</button><button type="button" class="btn sm danger" data-rm="${esc(p.email)}">Remover</button></span>`}</li>`;
   });
   ul.innerHTML = rowsP.join('') + rows.join('');
   const n = pedidos.length; const b = $('#badgeBase'); if (b) b.textContent = n ? String(n) : '';
