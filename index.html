@@ -427,7 +427,7 @@ details.adv[open] summary { margin-bottom: 8px; }
           <div class="field">
             <label for="fDist" id="distLabel">Distância a partir da origem</label>
             <div class="row">
-              <input id="fDist" type="text" inputmode="decimal" placeholder="Ex.: 6 ou 6,350">
+              <input id="fDist" type="text" inputmode="text" placeholder="Ex.: 6,350 ou 65-54">
               <select id="fUnit" aria-label="Unidade"><option value="km">km</option><option value="m">metros</option></select>
             </div>
           </div>
@@ -997,6 +997,12 @@ function buildPlaces() {
       list.push({ name: p.name, sub: dup ? p.path.slice(-1)[0] || '' : (p.area || ''), lat: p.coord[0], lng: p.coord[1], key: norm(p.name) });
     }
   }
+  // rompimentos salvos também servem de ponto de partida (ex.: RAL antiga a 54 km de Andradina)
+  for (const b of S.breaks) {
+    const nome = b.titulo || titleOf(b);
+    if (!nome || !isFinite(b.lat)) continue;
+    list.push({ name: nome, sub: 'Rompimento' + (b.dataHora ? ' · ' + fmtDate(b.dataHora).slice(0, 10) : ''), lat: b.lat, lng: b.lng, key: norm(nome + ' ' + (b.obs || '').slice(0, 120)) });
+  }
   S.places = list;
 }
 function updateHint(w) {
@@ -1032,7 +1038,7 @@ function setupAC(inp, w) {
   inp.addEventListener('input', () => {
     const cur = S[w];
     if (cur && cur.picked) cur.name = inp.value.trim() || 'Ponto no mapa';
-    else { const ex = S.places.find(p => p.key === norm(inp.value)); S[w] = ex ? { name: ex.name, lat: ex.lat, lng: ex.lng } : null; }
+    else { const q0 = norm(inp.value); const ex = S.places.find(p => p.key === q0 || norm(p.name) === q0); S[w] = ex ? { name: ex.name, lat: ex.lat, lng: ex.lng } : null; }
     active = -1; render(); updateHint(w); recalc();
   });
   inp.addEventListener('focus', () => { if (inp.value && !S[w]) render(); });
@@ -1208,7 +1214,11 @@ $('#swap').addEventListener('click', () => {
 });
 
 function readDistM() {
-  const raw = parseFloat(String(fDist.value).replace(/\s/g, '').replace(',', '.'));
+  const v = String(fDist.value).replace(/\s/g, '');
+  // aceita conta de subtração: “65-54” = 11 (medida total menos a medida da referência)
+  const sub = v.match(/^(\d+(?:[.,]\d+)?)-(\d+(?:[.,]\d+)?)$/);
+  if (sub) { const d = parseFloat(sub[1].replace(',', '.')) - parseFloat(sub[2].replace(',', '.')); if (!isFinite(d) || d < 0) return null; return fUnit.value === 'km' ? d * 1000 : d; }
+  const raw = parseFloat(v.replace(',', '.'));
   if (!isFinite(raw) || raw < 0) return null;
   return fUnit.value === 'km' ? raw * 1000 : raw;
 }
@@ -1469,7 +1479,8 @@ function breakHtml(b) {
         <button type="button" class="btn sm" data-copy="${Number(b.lat).toFixed(6)}, ${Number(b.lng).toFixed(6)}">Copiar</button>
         ${rw ? `<button type="button" class="btn sm" data-act="toggle">${rep ? 'Reabrir' : 'Marcar reparado'}</button>
         <button type="button" class="btn sm" data-act="edit">Editar</button>
-        <button type="button" class="btn sm danger" data-act="del">Excluir</button>` : ''}
+        <button type="button" class="btn sm danger" data-act="del">Excluir</button>
+        <button type="button" class="btn sm" data-act="breakorig">Medir a partir daqui</button>` : ''}
       </div></li>`;
   }
 }
@@ -1506,7 +1517,7 @@ function trechoHtml(b) {
   const dist = typeof b.distM === 'number' ? `<span class="dist">${esc(fmtDist(b.distM))}</span> ` : '';
   return `<div class="item-title">${dist}${b.origem ? `de <b>${esc(b.origem)}</b>` : ''}${b.destino ? ` → ${esc(b.destino)}` : ''}</div>`;
 }
-function renderAll() { renderList(); renderBreakMarkers(); renderAreaList(); if (S.detalhe) renderDetalhe(); }
+function renderAll() { buildPlaces(); renderList(); renderBreakMarkers(); renderAreaList(); if (S.detalhe) renderDetalhe(); }
 function renderAreaList() {
   const set = new Set(S.breaks.map(b => b.area).filter(Boolean));
   if (S.parsed) S.parsed.lines.forEach(l => l.area && set.add(l.area));
@@ -1578,6 +1589,7 @@ const acaoItem = async e => {
   const act = btn.dataset.act;
   if (act === 'map') focusBreak(id, true);
   else if (act === 'edit') { if (noDetalhe) fecharDetalhe(); loadForEdit(b); }
+  else if (act === 'breakorig') medirDaqui(b.titulo || titleOf(b), [b.lat, b.lng]);
   else if (act === 'toggle') {
     try { await Store.save(Object.assign({}, b, { status: b.status === 'reparado' ? 'aberto' : 'reparado', atualizadoEm: new Date().toISOString() })); toast(b.status === 'reparado' ? 'Reaberto.' : 'Marcado como reparado.'); }
     catch (err) { handleWriteError(err); }
@@ -2004,7 +2016,7 @@ function setCriar(on) {
   $('#lgSenha').autocomplete = on ? 'new-password' : 'current-password';
 }
 // Versão do app: ao voltar para o app, confere se o site tem versão mais nova e oferece atualizar
-const APP_VERSAO = '2026-11-19a';
+const APP_VERSAO = '2026-11-19b';
 function checarVersao() {
   if (!navigator.onLine) return;
   fetch(location.pathname + '?versao=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => {
