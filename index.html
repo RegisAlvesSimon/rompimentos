@@ -1025,7 +1025,13 @@ function cidadesDaRede(P) {
   _cidadesDe = P; _cidades = [];
   let geo, nomes;
   try { geo = JSON.parse($('#mun-geo').textContent); nomes = JSON.parse($('#mun-nomes').textContent); } catch (_) { return _cidades; }
+  // pontos com nome de lugar (tira referências “36km de Ilha Solteira”, RALs e rompimentos, que ficam fora da cidade)
   const pts = P.points.filter(p => p.name && p.coord);
+  const lugares = pts.filter(p => !RE_MEDIDA.test(p.name) && !/refer[eê]ncia|\b(ral|rec|rup|romp)/i.test(p.name));
+  // grade de ~1 km com quantos vértices de cabo tem em cada quadrado: a cidade é onde o traçado é mais denso
+  const CEL = 0.01, grade = new Map();
+  for (const l of P.lines) for (const c of l.coords) { const k = Math.floor(c[0] / CEL) + ':' + Math.floor(c[1] / CEL); grade.set(k, (grade.get(k) || 0) + 1); }
+  const dentro = (pt, rings) => { let ins = false; for (const ring of rings) for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) { const yi = ring[i][1], xi = ring[i][0], yj = ring[j][1], xj = ring[j][0]; if ((yi > pt[0]) !== (yj > pt[0]) && pt[1] < (xj - xi) * (pt[0] - yi) / (yj - yi) + xi) ins = !ins; } return ins; };
   for (const f of geo.features) {
     const nome = nomes[f.properties && f.properties.codarea]; const g = f.geometry; if (!nome || !g) continue;
     const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
@@ -1036,10 +1042,21 @@ function cidadesDaRede(P) {
     let perto = false; for (const p of pts) { if (Math.abs(p.coord[0] - cen[0]) < 0.2 && Math.abs(p.coord[1] - cen[1]) < 0.2 && hav(p.coord, cen) < 20000) { perto = true; break; } }
     if (!perto) continue;
     // o centro do município nem sempre é a cidade: usa os pontos do KMZ com o nome dela (ex.: “CS - ANDRADINA”), se houver
-    const k = norm(nome), re = new RegExp('(^| )' + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '( |$)');
-    const meus = pts.filter(p => re.test(norm(p.name)) && hav(p.coord, cen) < 25000);
+    const k = norm(nome), re = new RegExp('(^| )' + k.replace(/[^a-z0-9]+/g, ' ').trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '( |$)');
+    const meus = lugares.filter(p => re.test(norm(p.name).replace(/[^a-z0-9]+/g, ' ')) && hav(p.coord, cen) < 25000);
     let pos = cen;
-    if (meus.length) { const med = a => { const s = a.slice().sort((x, y) => x - y); return s[s.length >> 1]; }; pos = [med(meus.map(p => p.coord[0])), med(meus.map(p => p.coord[1]))]; }
+    if (meus.length) { const med = a => { const s = a.slice().sort((x, y) => x - y), h = s.length >> 1; return s.length % 2 ? s[h] : (s[h - 1] + s[h]) / 2; }; pos = [med(meus.map(p => p.coord[0])), med(meus.map(p => p.coord[1]))]; }
+    else {
+      // sem ponto com o nome: usa o lugar do município com mais cabo desenhado (normalmente a área urbana)
+      const rings = polys.map(p => p[0]);
+      let la0 = 90, la1 = -90, ln0 = 180, ln1 = -180; for (const c of big) { la0 = Math.min(la0, c[1]); la1 = Math.max(la1, c[1]); ln0 = Math.min(ln0, c[0]); ln1 = Math.max(ln1, c[0]); }
+      let best = 0;
+      for (let i = Math.floor(la0 / CEL); i <= Math.floor(la1 / CEL); i++) for (let j = Math.floor(ln0 / CEL); j <= Math.floor(ln1 / CEL); j++) {
+        const n = grade.get(i + ':' + j); if (!n || n <= best) continue;
+        const c = [(i + .5) * CEL, (j + .5) * CEL]; if (!dentro(c, rings)) continue;
+        best = n; pos = c;
+      }
+    }
     _cidades.push({ name: nome, sub: 'Cidade', lat: r6(pos[0]), lng: r6(pos[1]), key: k, cidade: true });
   }
   return _cidades;
@@ -2195,7 +2212,7 @@ function setCriar(on) {
   $('#lgSenha').autocomplete = on ? 'new-password' : 'current-password';
 }
 // Versão do app: ao voltar para o app, confere se o site tem versão mais nova e oferece atualizar
-const APP_VERSAO = '2026-11-19f';
+const APP_VERSAO = '2026-11-19g';
 function checarVersao() {
   if (!navigator.onLine) return;
   fetch(location.pathname + '?versao=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => {
