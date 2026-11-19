@@ -222,6 +222,9 @@ details.adv[open] summary { margin-bottom: 8px; }
 @media (min-width: 900px) { .detalhe { left: 10px; right: auto; bottom: 46px; width: 380px; max-height: 70%; padding: 0; } }
 .pill.ref { background: var(--ref-soft); color: var(--ref); }
 .pill.perto { background: var(--ink); color: var(--bg); }
+.medir { border: 2px solid var(--accent); border-radius: 12px; padding: 12px; margin-bottom: 14px; background: var(--surface); }
+.medir-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.medir-de { margin: 6px 0 10px; }
 .perto-row > .primary { flex: 1; width: auto; min-height: 42px; font-size: 14px; }
 .ref-pin { display: block; width: 14px; height: 14px; background: var(--ref); border: 2px solid var(--surface); transform: rotate(45deg); box-shadow: 0 1px 4px rgba(0,0,0,.4); margin: 1px; }
 .ref-lbl { display: none; position: absolute; left: 18px; top: -2px; white-space: nowrap; font: 600 11px/1.2 var(--f-body); color: var(--ref); background: color-mix(in srgb, var(--surface) 85%, transparent); padding: 1px 4px; border-radius: 4px; pointer-events: none; }
@@ -471,6 +474,25 @@ details.adv[open] summary { margin-bottom: 8px; }
 
     <!-- PESQUISAR -->
     <div class="tabpanel" id="p-pesquisar" role="tabpanel" hidden>
+      <div class="medir" id="medirBox" hidden>
+        <div class="medir-head"><span class="k">Medir a partir daqui</span><button type="button" class="ghost sm" id="medirFechar">Fechar</button></div>
+        <p class="medir-de">De: <b id="mOrigNome"></b></p>
+        <div class="field ac">
+          <label for="mDest">Sentido (para onde a medida vai)</label>
+          <div class="row"><input id="mDest" type="text" placeholder="Ex.: Andradina" aria-autocomplete="list"><button type="button" class="ghost" id="mDestPick">No mapa</button></div>
+          <ul class="aclist" role="listbox" hidden></ul>
+          <p class="hint" id="mDestHint">Escolha uma cidade ou ponto do KMZ no sentido do rompimento.</p>
+        </div>
+        <div class="field">
+          <label for="mDist">Distância do OTDR a partir daqui</label>
+          <div class="row">
+            <input id="mDist" type="text" inputmode="text" placeholder="Ex.: 11 ou 65-54">
+            <select id="mUnit" aria-label="Unidade"><option value="km">km</option><option value="m">metros</option></select>
+          </div>
+          <p class="hint">Se a referência é de 54 km e o OTDR deu 65 km, digite 65-54.</p>
+        </div>
+        <div class="result" id="mResult" aria-live="polite"></div>
+      </div>
       <div class="search">
         <input id="q" type="search" placeholder="Pesquisar cidade, área ou observação (ex.: Penápolis)" aria-label="Pesquisar">
         <div class="row perto-row">
@@ -1027,7 +1049,7 @@ function setPlace(w, p, fromPick) {
   if (S.pick) endPick();
   updateHint(w); recalc();
 }
-function setupAC(inp, w) {
+function setupAC(inp, w, custom) {
   const list = inp.closest('.ac').querySelector('.aclist');
   let items = [], active = -1;
   const close = () => { list.hidden = true; active = -1; inp.setAttribute('aria-expanded', 'false'); };
@@ -1041,8 +1063,9 @@ function setupAC(inp, w) {
       : `<li class="empty">${S.places.length ? 'Nenhum ponto com esse nome' : 'Carregue o KMZ para ver os nomes'}</li>`;
     list.hidden = false; inp.setAttribute('aria-expanded', 'true');
   };
-  const choose = i => { const p = items[i]; if (!p) return; close(); setPlace(w, p); };
+  const choose = i => { const p = items[i]; if (!p) return; close(); if (custom) { inp.value = p.name; custom(p); } else setPlace(w, p); };
   inp.addEventListener('input', () => {
+    if (custom) { const q0 = norm(inp.value); const ex = S.places.find(p => p.key === q0 || norm(p.name) === q0); active = -1; render(); custom(ex || null, true); return; }
     const cur = S[w];
     if (cur && cur.picked) cur.name = inp.value.trim() || 'Ponto no mapa';
     else { const q0 = norm(inp.value); const ex = S.places.find(p => p.key === q0 || norm(p.name) === q0); S[w] = ex ? { name: ex.name, lat: ex.lat, lng: ex.lng } : null; }
@@ -1164,7 +1187,7 @@ document.addEventListener('click', e => { if (e.target.closest('#snapBtn')) enca
 
 function startPick(w) {
   S.pick = w;
-  $('#pickText').textContent = w === 'break' ? 'Toque no mapa onde foi o ROMPIMENTO' : w === 'origin' ? 'Toque no mapa para marcar a ORIGEM' : 'Toque no mapa para marcar o DESTINO';
+  $('#pickText').textContent = w === 'med' ? 'Toque no mapa para marcar o SENTIDO da medida' : w === 'break' ? 'Toque no mapa onde foi o ROMPIMENTO' : w === 'origin' ? 'Toque no mapa para marcar a ORIGEM' : 'Toque no mapa para marcar o DESTINO';
   $('#pickbar').hidden = false; $('#map').classList.add('picking');
   if (window.innerWidth < 900) $('.mapbox').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -1205,6 +1228,11 @@ $$('[data-gps]').forEach(b => b.addEventListener('click', () => usarGpsTrecho(b.
 $('#pickCancel').addEventListener('click', endPick);
 map.on('click', e => {
   if (!S.pick) { if (S.detalhe) fecharDetalhe(); return; }
+  if (S.pick === 'med') {
+    endPick();
+    if (S.med) { S.med.dest = { name: 'Ponto no mapa', lat: r6(e.latlng.lat), lng: r6(e.latlng.lng) }; $('#mDest').value = 'Ponto no mapa'; medirCalc(); }
+    return;
+  }
   if (S.pick === 'break') {
     S.ponto = { lat: r6(e.latlng.lat), lng: r6(e.latlng.lng), fonte: 'mapa' };
     endPick(); recalc({ keepManual: true });
@@ -1220,8 +1248,10 @@ $('#swap').addEventListener('click', () => {
   updateHint('origin'); updateHint('dest'); recalc();
 });
 
-function readDistM() {
-  const v = String(fDist.value).replace(/\s/g, '');
+function readDistM() { return parseDistM(fDist.value, fUnit.value); }
+function parseDistM(valor, unidade) {
+  const fUnit = { value: unidade };
+  const v = String(valor).replace(/\s/g, '');
   // aceita conta de subtração: “65-54” = 11 (medida total menos a medida da referência)
   const sub = v.match(/^(\d+(?:[.,]\d+)?)-(\d+(?:[.,]\d+)?)$/);
   if (sub) { const d = parseFloat(sub[1].replace(',', '.')) - parseFloat(sub[2].replace(',', '.')); if (!isFinite(d) || d < 0) return null; return fUnit.value === 'km' ? d * 1000 : d; }
@@ -1422,7 +1452,7 @@ function refHtml(p) {
         <button type="button" class="btn sm" data-act="refmap">Ver no mapa</button>
         <a class="btn sm" href="${gmapsUrl(p.coord[0], p.coord[1])}" target="_blank" rel="noopener">Google Maps</a>
         <button type="button" class="btn sm" data-copy="${p.coord[0].toFixed(6)}, ${p.coord[1].toFixed(6)}">Copiar</button>
-        ${S.canWrite ? '<button type="button" class="btn sm" data-act="reforig">Medir a partir daqui</button>' : ''}
+        <button type="button" class="btn sm" data-act="reforig">Medir a partir daqui</button>
       </div></li>`;
 }
 function focusRef(refId, pan = true) {
@@ -1495,8 +1525,8 @@ function breakHtml(b) {
         <button type="button" class="btn sm" data-copy="${Number(b.lat).toFixed(6)}, ${Number(b.lng).toFixed(6)}">Copiar</button>
         ${rw ? `<button type="button" class="btn sm" data-act="toggle">${rep ? 'Reabrir' : 'Marcar reparado'}</button>
         <button type="button" class="btn sm" data-act="edit">Editar</button>
-        <button type="button" class="btn sm danger" data-act="del">Excluir</button>
-        <button type="button" class="btn sm" data-act="breakorig">Medir a partir daqui</button>` : ''}
+        <button type="button" class="btn sm danger" data-act="del">Excluir</button>` : ''}
+        <button type="button" class="btn sm" data-act="breakorig">Medir a partir daqui</button>
       </div></li>`;
   }
 }
@@ -1511,7 +1541,7 @@ function pontoHtml(p) {
       <div class="item-actions">
         <a class="btn sm" href="${gmapsUrl(p.coord[0], p.coord[1])}" target="_blank" rel="noopener">Google Maps</a>
         <button type="button" class="btn sm" data-copy="${p.coord[0].toFixed(6)}, ${p.coord[1].toFixed(6)}">Copiar</button>
-        ${S.canWrite ? '<button type="button" class="btn sm" data-act="pontoorig">Medir a partir daqui</button>' : ''}
+        <button type="button" class="btn sm" data-act="pontoorig">Medir a partir daqui</button>
       </div></li>`;
 }
 /* ---- cartão de detalhe ao tocar num ponto do mapa ---- */
@@ -1605,14 +1635,82 @@ function focusBreak(id, pan = true) {
   if (li) { li.classList.add('hl'); if (!pan || window.innerWidth >= 900) li.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
 }
 const armed = new WeakMap();
+/* ---- Medir a partir daqui (na Pesquisar): primeiro acha o rompimento, depois decide se marca ---- */
+const medLayer = L.layerGroup().addTo(map);
 function medirDaqui(nome, coord) {
   fecharDetalhe();
-  showTab('marcar'); setModo('otdr', { noAuto: true });
-  setPlace('origin', { name: nome, lat: coord[0], lng: coord[1] });
-  fOrig.value = nome; updateHint('origin');
-  toast('Ponto como origem. Agora escolha o destino (sentido) e a distância.');
-  if (window.innerWidth < 900) $('#form').scrollIntoView({ behavior: 'smooth' });
+  S.med = { orig: { name: nome, lat: coord[0], lng: coord[1] }, dest: null };
+  $('#mOrigNome').textContent = nome;
+  $('#mDest').value = ''; $('#mDist').value = '';
+  $('#medirBox').hidden = false;
+  showTab('pesquisar');
+  medirCalc();
+  $('#medirBox').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  setTimeout(() => $('#mDest').focus({ preventScroll: true }), 350);
 }
+function fecharMedir() { S.med = null; medLayer.clearLayers(); $('#medirBox').hidden = true; if (S.pick === 'med') endPick(); }
+function medirCalc() {
+  medLayer.clearLayers();
+  const M = S.med, el = $('#mResult'); if (!M) return;
+  el.classList.remove('ready');
+  const accent = cssVar('--accent'), muted = cssVar('--muted');
+  L.circleMarker([M.orig.lat, M.orig.lng], { radius: 7, color: accent, weight: 3, fillColor: cssVar('--surface'), fillOpacity: 1, interactive: false }).addTo(medLayer);
+  const h = $('#mDestHint'); h.className = 'hint';
+  if (M.dest) { h.classList.add('set'); h.textContent = M.dest.lat.toFixed(5) + ', ' + M.dest.lng.toFixed(5); }
+  else if ($('#mDest').value.trim()) { h.classList.add('warn'); h.textContent = 'Não achei esse nome no KMZ. Escolha da lista ou use “No mapa”.'; }
+  else h.textContent = 'Escolha uma cidade ou ponto do KMZ no sentido do rompimento.';
+  if (!M.dest) { el.innerHTML = '<span class="k">Ponto do rompimento</span><span class="meta">Escolha o <b>sentido</b> e digite a <b>distância</b> do OTDR.</span>'; return; }
+  const r = computeRoute(M.orig, M.dest);
+  L.polyline(r.coords, { color: muted, weight: 7, opacity: .35, dashArray: r.network ? null : '6 8', interactive: false }).addTo(medLayer);
+  const warns = [];
+  if (!r.network) warns.push(r.broken ? 'Não achei um caminho ligado entre os dois pontos na rede do KMZ. Usei linha reta.' : 'Sem rede carregada: usei linha reta entre os pontos.');
+  if (r.network && r.snapO > 300) warns.push(`O ponto de partida fica a ${fmtDist(r.snapO)} da rede. A medida começa no cabo mais próximo dele.`);
+  if (r.network && r.reta > 2000 && r.length > 2.2 * r.reta) warns.push(`Atenção: pela rede deu ${fmtDist(r.length)}, bem mais que em linha reta (${fmtDist(r.reta)}). Pode faltar um trecho de cabo no KMZ. Confira o ponto.`);
+  if (r.pontes && r.pontes.length) warns.push(`O caminho passa por ${r.pontes.length === 1 ? 'um trecho que não está desenhado no KMZ' : r.pontes.length + ' trechos que não estão desenhados no KMZ'} (${r.pontes.map(d => fmtDist(d)).join(', ')}).`);
+  const distM = parseDistM($('#mDist').value, $('#mUnit').value);
+  if (distM === null) {
+    el.innerHTML = `<span class="k">Trecho pela rede</span><span class="meta"><b>${esc(M.orig.name)}</b> → <b>${esc(M.dest.name)}</b>: <span class="mono">${fmtDist(r.length)}</span></span>${warns.map(w => `<span class="warn">${esc(w)}</span>`).join('')}<span class="meta">Agora digite a distância.</span>`;
+    if (!map.getBounds().contains(L.latLngBounds(r.coords))) map.fitBounds(L.latLngBounds(r.coords).pad(0.1));
+    return;
+  }
+  const w = walk(r.coords, distM);
+  L.polyline([...r.coords.slice(0, w.idx), w.pt], { color: accent, weight: 5, opacity: .95, interactive: false }).addTo(medLayer);
+  L.marker(w.pt, { icon: L.divIcon({ className: '', html: '<span class="pin preview"></span>', iconSize: [28, 28], iconAnchor: [14, 14] }), zIndexOffset: 1000, interactive: false }).addTo(medLayer);
+  if (w.over) warns.push(`A distância passa do fim do trecho (${fmtDist(r.length)}). O ponto ficou no destino. Confira o sentido.`);
+  M.calc = { distM, lat: r6(w.pt[0]), lng: r6(w.pt[1]) };
+  if (!map.getBounds().pad(-0.1).contains(w.pt)) map.panTo(w.pt);
+  const lat = M.calc.lat, lng = M.calc.lng, pct = Math.min(100, (distM / Math.max(1, r.length)) * 100);
+  el.classList.add('ready');
+  el.innerHTML = `<span class="k">Ponto do rompimento</span>
+    <span class="coord">${lat.toFixed(6)}, ${lng.toFixed(6)}</span>
+    <span class="meta"><b class="mono">${fmtDist(distM)}</b> de <b>${esc(M.orig.name)}</b> sentido <b>${esc(M.dest.name)}</b></span>
+    <div class="km-scale" aria-hidden="true"><span style="width:${pct.toFixed(1)}%"></span></div>
+    <div class="scale-labels"><span>${esc(M.orig.name)}</span><span class="mono">${fmtDist(r.length)} pela rede</span><span>${esc(M.dest.name)}</span></div>
+    ${warns.map(x => `<span class="warn">${esc(x)}</span>`).join('')}
+    <div class="links"><button type="button" class="btn sm" id="mVer">Ver no mapa</button><a class="btn sm" href="${gmapsUrl(lat, lng)}" target="_blank" rel="noopener">Google Maps</a><button type="button" class="btn sm" data-copy="${lat.toFixed(6)}, ${lng.toFixed(6)}">Copiar coordenadas</button></div>
+    ${S.canWrite ? '<button type="button" class="primary" id="mMarcar" style="margin-top:10px">Marcar rompimento aqui</button>' : ''}`;
+}
+setupAC($('#mDest'), null, (p, digitando) => { if (!S.med) return; S.med.dest = p ? { name: p.name, lat: p.lat, lng: p.lng } : null; medirCalc(); if (p && !digitando) $('#mDist').focus(); });
+$('#mDist').addEventListener('input', medirCalc);
+$('#mUnit').addEventListener('change', medirCalc);
+$('#mDestPick').addEventListener('click', () => startPick('med'));
+$('#medirFechar').addEventListener('click', fecharMedir);
+$('#mResult').addEventListener('click', e => {
+  const M = S.med; if (!M || !M.calc) return;
+  if (e.target.closest('#mVer')) { map.setView([M.calc.lat, M.calc.lng], Math.max(map.getZoom(), 16)); if (window.innerWidth < 900) $('.mapbox').scrollIntoView({ behavior: 'smooth' }); }
+  if (e.target.closest('#mMarcar')) {
+    // leva a medida pronta para a aba Marcar
+    if (S.editId) resetForm(false);
+    showTab('marcar'); setModo('otdr', { noAuto: true });
+    S.origin = { ...M.orig, picked: true }; S.dest = { ...M.dest, picked: true };
+    fOrig.value = M.orig.name; fDest.value = M.dest.name;
+    fDist.value = $('#mDist').value; fUnit.value = $('#mUnit').value;
+    updateHint('origin'); updateHint('dest');
+    fecharMedir(); recalc();
+    toast('Medida levada para Marcar. Confira e salve.');
+    $('#result').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+});
 const acaoItem = async e => {
   const btn = e.target.closest('button[data-act]'); if (!btn) return;
   const noDetalhe = !!btn.closest('#detalhe');
@@ -1628,15 +1726,7 @@ const acaoItem = async e => {
   if (refLi) {
     const p = (S.refs || []).find(x => x.refId === refLi.dataset.ref); if (!p) return;
     if (btn.dataset.act === 'refmap') focusRef(p.refId, true);
-    else if (btn.dataset.act === 'reforig') {
-      if (noDetalhe) { medirDaqui(p.name, p.coord); return; }
-      // usa a referência como origem da medida do OTDR
-      showTab('marcar'); setModo('otdr', { noAuto: true });
-      setPlace('origin', { name: p.name, lat: p.coord[0], lng: p.coord[1] });
-      fOrig.value = p.name; updateHint('origin');
-      toast('Referência como origem. Agora escolha o destino (sentido) e a distância.');
-      fDest.focus();
-    }
+    else if (btn.dataset.act === 'reforig') medirDaqui(p.name, p.coord);
     return;
   }
   const id = btn.closest('.item').dataset.id; const b = S.breaks.find(x => x.id === id); if (!b) return;
@@ -2070,7 +2160,7 @@ function setCriar(on) {
   $('#lgSenha').autocomplete = on ? 'new-password' : 'current-password';
 }
 // Versão do app: ao voltar para o app, confere se o site tem versão mais nova e oferece atualizar
-const APP_VERSAO = '2026-11-19c';
+const APP_VERSAO = '2026-11-19d';
 function checarVersao() {
   if (!navigator.onLine) return;
   fetch(location.pathname + '?versao=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => {
@@ -2302,7 +2392,7 @@ async function init() {
   await initLocal();
 }
 // Ferramenta de diagnóstico da rede (só aparece com ?debug no endereço)
-if (/[?&]debug\b/.test(location.search)) window.__romp = { S, map, computeRoute, getNet, nearestSeg, buildNet, hav };
+if (/[?&]debug\b/.test(location.search)) window.__romp = { S, map, computeRoute, getNet, nearestSeg, buildNet, hav, applyBase };
 init();
 })();
 </script>
