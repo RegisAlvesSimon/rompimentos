@@ -221,6 +221,8 @@ details.adv[open] summary { margin-bottom: 8px; }
 .detalhe-fechar { position: sticky; top: 0; float: right; margin: 0 2px -34px 0; z-index: 2; width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; font-size: 14px; box-shadow: var(--shadow); }
 @media (min-width: 900px) { .detalhe { left: 10px; right: auto; bottom: 46px; width: 380px; max-height: 70%; padding: 0; } }
 .pill.ref { background: var(--ref-soft); color: var(--ref); }
+.pill.perto { background: var(--ink); color: var(--bg); }
+.perto-row > .primary { flex: 1; width: auto; min-height: 42px; font-size: 14px; }
 .ref-pin { display: block; width: 14px; height: 14px; background: var(--ref); border: 2px solid var(--surface); transform: rotate(45deg); box-shadow: 0 1px 4px rgba(0,0,0,.4); margin: 1px; }
 .ref-lbl { display: none; position: absolute; left: 18px; top: -2px; white-space: nowrap; font: 600 11px/1.2 var(--f-body); color: var(--ref); background: color-mix(in srgb, var(--surface) 85%, transparent); padding: 1px 4px; border-radius: 4px; pointer-events: none; }
 #map.zoom-alto .ref-lbl { display: block; }
@@ -471,6 +473,11 @@ details.adv[open] summary { margin-bottom: 8px; }
     <div class="tabpanel" id="p-pesquisar" role="tabpanel" hidden>
       <div class="search">
         <input id="q" type="search" placeholder="Pesquisar cidade, área ou observação (ex.: Penápolis)" aria-label="Pesquisar">
+        <div class="row perto-row">
+          <button type="button" class="primary" id="pertoBtn">Pegar minha localização</button>
+          <button type="button" class="btn" id="pertoLimpar" hidden>Limpar</button>
+        </div>
+        <p class="hint" id="pertoHint" hidden></p>
         <div class="filters">
           <div class="seg" role="group" aria-label="Situação">
             <button type="button" data-st="all" aria-pressed="true">Todos</button>
@@ -1448,6 +1455,7 @@ function renderList() {
   $('#summary').innerHTML = S.filter.status === 'ref'
     ? `<b>${refs.length}</b> ${refs.length === 1 ? 'referência' : 'referências'}`
     : `<b>${list.length}</b> ${list.length === 1 ? 'rompimento' : 'rompimentos'} · <b>${open}</b> abertos · <b>${list.length - open}</b> reparados${refs.length ? ` · <b>${refs.length}</b> referências` : ''}`;
+  if (S.perto) $('#summary').innerHTML += ' · do mais perto de você';
   const allOpen = S.breaks.filter(b => b.status !== 'reparado').length;
   $('#badge').textContent = allOpen ? String(allOpen) : '';
   // áreas
@@ -1460,6 +1468,14 @@ function renderList() {
     return;
   }
   if (!list.length && !refs.length) { ul.innerHTML = `<li class="empty-state">Nada encontrado para essa pesquisa.</li>`; return; }
+  if (S.perto) {
+    // ordenado pela distância até você (rompimentos e referências juntos)
+    const me = [S.perto.lat, S.perto.lng];
+    const itens = [...list.map(b => ({ d: hav(me, [b.lat, b.lng]), html: breakHtml(b) })), ...refs.map(p => ({ d: hav(me, p.coord), html: refHtml(p) }))]
+      .sort((a, b) => a.d - b.d).slice(0, 300);
+    ul.innerHTML = itens.map(x => x.html.replace('<div class="item-head">', `<div class="item-head"><span class="pill perto">a ${esc(fmtDist(x.d))} de você</span>`)).join('');
+    return;
+  }
   ul.innerHTML = refs.slice(0, 300).map(refHtml).join('') + list.map(breakHtml).join('');
 }
 function breakHtml(b) {
@@ -1524,6 +1540,44 @@ function renderAreaList() {
   $('#areaList').innerHTML = [...set].sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true })).map(a => `<option value="${esc(a)}"></option>`).join('');
 }
 $('#q').addEventListener('input', e => { S.filter.q = e.target.value; renderList(); renderBreakMarkers(); });
+
+/* ---- "Pegar minha localização" na pesquisa: mostra você no mapa e ordena pelo mais perto ---- */
+const meLayer = L.layerGroup().addTo(map);
+let pertoWatch = null;
+function pararPerto() { if (pertoWatch !== null) { try { navigator.geolocation.clearWatch(pertoWatch); } catch (_) {} pertoWatch = null; } }
+function desenharEu() {
+  meLayer.clearLayers(); if (!S.perto) return;
+  const c = [S.perto.lat, S.perto.lng], azul = cssVar('--route');
+  if (S.perto.acc) L.circle(c, { radius: S.perto.acc, color: azul, weight: 1, fillColor: azul, fillOpacity: .12, interactive: false }).addTo(meLayer);
+  L.circleMarker(c, { radius: 8, color: '#fff', weight: 3, fillColor: azul, fillOpacity: 1, interactive: false }).addTo(meLayer);
+}
+$('#pertoBtn').addEventListener('click', () => {
+  const hint = $('#pertoHint'); hint.hidden = false; hint.className = 'hint';
+  if (!('geolocation' in navigator)) { hint.className = 'hint warn'; hint.textContent = 'Este aparelho não informa a localização.'; return; }
+  pararPerto(); hint.textContent = 'Buscando sua localização…';
+  const t0 = Date.now(); let melhor = null, primeira = true;
+  pertoWatch = navigator.geolocation.watchPosition(pos => {
+    const acc = Math.round(pos.coords.accuracy);
+    if (melhor === null || acc < melhor) {
+      melhor = acc;
+      S.perto = { lat: r6(pos.coords.latitude), lng: r6(pos.coords.longitude), acc };
+      desenharEu(); renderList();
+      if (primeira) { map.setView([S.perto.lat, S.perto.lng], Math.max(map.getZoom(), 13)); primeira = false; }
+      hint.className = 'hint set';
+      hint.textContent = `Você está aqui (±${acc} m). Lista ordenada do mais perto para o mais longe.`;
+      $('#pertoLimpar').hidden = false; $('#pertoBtn').textContent = 'Atualizar localização';
+    }
+    if (acc <= 15 || Date.now() - t0 > 20000) pararPerto();
+  }, err => {
+    pararPerto(); hint.className = 'hint warn';
+    hint.textContent = err.code === 1 ? 'Localização bloqueada. Permita a localização para este site nas configurações do navegador.' : 'Não consegui pegar a localização agora. Tente de novo.';
+  }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+  setTimeout(pararPerto, 25000);
+});
+$('#pertoLimpar').addEventListener('click', () => {
+  pararPerto(); S.perto = null; desenharEu(); renderList();
+  $('#pertoHint').hidden = true; $('#pertoLimpar').hidden = true; $('#pertoBtn').textContent = 'Pegar minha localização';
+});
 $$('.seg button[data-st]').forEach(b => b.addEventListener('click', () => {
   S.filter.status = b.dataset.st; $$('.seg button[data-st]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
   renderList(); renderBreakMarkers();
@@ -2016,7 +2070,7 @@ function setCriar(on) {
   $('#lgSenha').autocomplete = on ? 'new-password' : 'current-password';
 }
 // Versão do app: ao voltar para o app, confere se o site tem versão mais nova e oferece atualizar
-const APP_VERSAO = '2026-11-19b';
+const APP_VERSAO = '2026-11-19c';
 function checarVersao() {
   if (!navigator.onLine) return;
   fetch(location.pathname + '?versao=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => {
