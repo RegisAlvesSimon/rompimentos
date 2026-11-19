@@ -389,8 +389,7 @@ details.adv[open] summary { margin-bottom: 8px; }
           <div class="field">
             <span class="lbl" id="modoLbl">Como marcar o local</span>
             <div class="seg modo-seg" id="modoSeg" role="group" aria-labelledby="modoLbl">
-              <button type="button" data-modo="otdr" aria-pressed="true">Pela medida</button>
-              <button type="button" data-modo="gps" aria-pressed="false">Onde estou</button>
+              <button type="button" data-modo="gps" aria-pressed="true">Onde estou</button>
               <button type="button" data-modo="mapa" aria-pressed="false">No mapa</button>
               <button type="button" data-modo="coord" aria-pressed="false">Coordenadas</button>
             </div>
@@ -1039,8 +1038,8 @@ function updateHint(w) {
   const v = S[w], txt = inputOf(w).value.trim();
   h.className = 'hint';
   if (v) { h.classList.add('set'); h.textContent = (v.picked ? 'Marcado no mapa · ' : '') + v.lat.toFixed(5) + ', ' + v.lng.toFixed(5); }
-  else if (txt) { h.classList.add('warn'); h.textContent = S.places.length ? 'Não achei esse nome no KMZ. Escolha da lista ou use “No mapa”.' : 'Carregue o KMZ na aba Mapa base, ou use “No mapa”.'; }
-  else h.textContent = w === 'origin' ? 'Escolha da lista do seu KMZ ou marque no mapa.' : '';
+  else if (txt) h.textContent = 'Fica guardado como informação do rompimento.';
+  else h.textContent = w === 'origin' ? 'Pode digitar livre ou escolher da lista do KMZ.' : '';
 }
 function setPlace(w, p, fromPick) {
   S[w] = { name: p.name, lat: p.lat, lng: p.lng, picked: !!fromPick };
@@ -1085,17 +1084,19 @@ function setupAC(inp, w, custom) {
 setupAC(fOrig, 'origin'); setupAC(fDest, 'dest');
 
 /* ---- jeitos de marcar: pela medida, GPS, tocar no mapa, coordenadas ---- */
-const MODOS = ['otdr', 'gps', 'mapa', 'coord'];
+// O local do rompimento sempre vem do GPS, do mapa ou de coordenadas; De/Para/Distância são só informação.
+// (Para achar o ponto pela medida do OTDR use “Medir a partir daqui” na Pesquisar.)
+const MODOS = ['gps', 'mapa', 'coord'];
 function setModo(m, opts = {}) {
-  if (!MODOS.includes(m)) m = 'otdr';
+  if (!MODOS.includes(m)) m = 'gps';
   S.modo = m;
   try { localStorage.setItem('romp-modo', m); } catch (_) {}
   $$('#modoSeg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.modo === m)));
   $('#pontoBox').hidden = m === 'otdr';
   $$('#pontoBox [data-p]').forEach(d => { d.hidden = d.dataset.p !== m; });
   $('#adv').hidden = m !== 'otdr';
-  $('#trechoLegend').textContent = m === 'otdr' ? 'Trecho' : 'Trecho (opcional, ajuda na pesquisa)';
-  $('#distLabel').textContent = m === 'otdr' ? 'Distância a partir da origem' : 'Medida do OTDR (opcional, só para registro)';
+  $('#trechoLegend').textContent = 'De onde para onde (informação do rompimento)';
+  $('#distLabel').textContent = 'Distância do OTDR (informação do rompimento)';
   if (!opts.keepPonto) S.ponto = null;
   recalc({ keepManual: !!opts.keepPonto });
   if (m === 'gps' && !S.ponto && !opts.noAuto) pegarGps();
@@ -1294,7 +1295,7 @@ function recalc(opts = {}) {
   renderResult();
 }
 function gmapsUrl(lat, lng) { return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`; }
-const FONTE_TXT = { gps: 'Sua localização (GPS)', mapa: 'Marcado no mapa', coord: 'Coordenadas digitadas' };
+const FONTE_TXT = { gps: 'Sua localização (GPS)', mapa: 'Marcado no mapa', coord: 'Coordenadas digitadas', rota: 'Achado pela medida do OTDR' };
 function renderResult() {
   const el = $('#result'), c = S.calc;
   el.classList.remove('ready');
@@ -1701,12 +1702,14 @@ $('#mResult').addEventListener('click', e => {
   if (e.target.closest('#mMarcar')) {
     // leva a medida pronta para a aba Marcar
     if (S.editId) resetForm(false);
-    showTab('marcar'); setModo('otdr', { noAuto: true });
+    showTab('marcar');
+    S.ponto = { lat: M.calc.lat, lng: M.calc.lng, fonte: 'rota' };
+    setModo('mapa', { keepPonto: true, noAuto: true });
     S.origin = { ...M.orig, picked: true }; S.dest = { ...M.dest, picked: true };
     fOrig.value = M.orig.name; fDest.value = M.dest.name;
-    fDist.value = $('#mDist').value; fUnit.value = $('#mUnit').value;
+    const dm = M.calc.distM; fUnit.value = 'km'; fDist.value = String(Math.round(dm) / 1000).replace('.', ',');
     updateHint('origin'); updateHint('dest');
-    fecharMedir(); recalc();
+    fecharMedir(); recalc({ keepManual: true });
     toast('Medida levada para Marcar. Confira e salve.');
     $('#result').scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
@@ -1760,17 +1763,13 @@ function loadForEdit(b) {
   fArea.value = b.area || ''; fStatus.value = b.status; fObs.value = b.obs || '';
   fData.value = b.dataHora ? nowLocal(new Date(b.dataHora)) : nowLocal();
   updateHint('origin'); updateHint('dest');
-  if (hasTrecho && (b.metodo === 'rota' || b.metodo === 'manual')) {
-    setModo('otdr', { keepPonto: true, noAuto: true });
-    if (b.metodo === 'manual') S.manual = { lat: b.lat, lng: b.lng };
-    recalc({ keepManual: true });
-  } else {
+  {
     // marcado por ponto (GPS, mapa, coordenadas) ou importado do KMZ antigo: edita como ponto
     if (!hasTrecho) { fOrig.value = b.origem || ''; fDest.value = b.destino || ''; }
     if (typeof b.distM === 'number' && !hasTrecho) { const v = fUnit.value === 'km' ? b.distM / 1000 : b.distM; fDist.value = String(Math.round(v * 1000) / 1000).replace('.', ','); }
-    const fonte = ['gps', 'mapa', 'coord'].includes(b.metodo) ? b.metodo : 'mapa';
+    const fonte = ['gps', 'mapa', 'coord', 'rota'].includes(b.metodo) ? b.metodo : 'mapa';
     S.ponto = { lat: b.lat, lng: b.lng, fonte, acc: b.precisaoM || null };
-    setModo(fonte, { keepPonto: true, noAuto: true });
+    setModo(fonte === 'rota' ? 'mapa' : fonte, { keepPonto: true, noAuto: true });
   }
   map.setView([b.lat, b.lng], Math.max(map.getZoom(), 14));
   $('.panel').scrollTo && $('.panel').scrollTo({ top: 0, behavior: 'smooth' });
@@ -2160,7 +2159,7 @@ function setCriar(on) {
   $('#lgSenha').autocomplete = on ? 'new-password' : 'current-password';
 }
 // Versão do app: ao voltar para o app, confere se o site tem versão mais nova e oferece atualizar
-const APP_VERSAO = '2026-11-19d';
+const APP_VERSAO = '2026-11-19e';
 function checarVersao() {
   if (!navigator.onLine) return;
   fetch(location.pathname + '?versao=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => {
@@ -2376,7 +2375,7 @@ $('#acessos').addEventListener('click', async e => {
 
 async function init() {
   fData.value = nowLocal();
-  let modo0 = 'otdr'; try { modo0 = localStorage.getItem('romp-modo') || 'otdr'; } catch (_) {}
+  let modo0 = 'gps'; try { modo0 = localStorage.getItem('romp-modo') || 'gps'; } catch (_) {}
   setModo(modo0, { noAuto: true });
   renderResult(); renderList();
   if (location.protocol !== 'file:' && isSite()) { await initFirebase(); return; }
