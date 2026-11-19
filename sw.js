@@ -1,8 +1,12 @@
 // Rompimentos — service worker: deixa o app abrir e funcionar sem sinal.
-const APP = 'romp-app-v2';
+const APP = 'romp-app-v3';
 const TILES = 'romp-tiles-v1';
 const MAX_TILES = 2500;
-const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
+// Arquivos do app guardados no aparelho para abrir sem sinal. Se criar um arquivo novo em css/ ou js/, coloque aqui também.
+const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png',
+  './css/estilo.css',
+  './js/municipios.js', './js/base.js', './js/kml.js', './js/rede.js', './js/mapa.js', './js/marcar.js',
+  './js/pesquisa.js', './js/geral.js', './js/dados.js', './js/firebase.js', './js/inicio.js'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(APP).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
