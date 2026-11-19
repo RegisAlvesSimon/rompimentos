@@ -2217,7 +2217,7 @@ function setCriar(on) {
   $('#lgSenha').autocomplete = on ? 'new-password' : 'current-password';
 }
 // Versão do app: ao voltar para o app, confere se o site tem versão mais nova e oferece atualizar
-const APP_VERSAO = '2026-11-19h';
+const APP_VERSAO = '2026-11-19i';
 function checarVersao() {
   if (!navigator.onLine) return;
   fetch(location.pathname + '?versao=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => {
@@ -2416,7 +2416,7 @@ function iniciarPresenca(uid, email) {
   }
 }
 function textoPresenca(email) {
-  const p = (S.presenca || {})[email]; if (!p || !p.t) return '<span class="pres off">nunca visto</span>';
+  const p = (S.presenca || {})[email]; if (!p || !p.t) return '<span class="pres off">sem registro ainda</span>';
   const min = (Date.now() - p.t) / 60000;
   if (p.ativo && min < 2.5) return '<span class="pres on">online agora</span>';
   const txt = min < 60 ? `visto há ${Math.max(1, Math.round(min))} min` : min < 1440 ? `visto há ${Math.round(min / 60)} h` : min < 2880 ? 'visto ontem' : `visto em ${new Date(p.t).toLocaleDateString('pt-BR')}`;
