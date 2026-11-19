@@ -409,7 +409,7 @@ details.adv[open] summary { margin-bottom: 8px; }
             <legend id="trechoLegend">Trecho</legend>
             <div class="field ac">
               <label for="fOrig">De (onde a medida começa)</label>
-              <div class="row"><input id="fOrig" type="text" placeholder="Ex.: Penápolis" aria-autocomplete="list"><button type="button" class="ghost" data-pick="origin">No mapa</button></div>
+              <div class="row"><input id="fOrig" type="text" placeholder="Ex.: Penápolis" aria-autocomplete="list"><button type="button" class="ghost" data-gps="origin" title="Usar minha localização">GPS</button><button type="button" class="ghost" data-pick="origin">No mapa</button></div>
               <ul class="aclist" role="listbox" hidden></ul>
               <p class="hint" id="hOrig">Escolha da lista do seu KMZ ou marque no mapa.</p>
             </div>
@@ -418,7 +418,7 @@ details.adv[open] summary { margin-bottom: 8px; }
             </button>
             <div class="field ac">
               <label for="fDest">Para (sentido da medida)</label>
-              <div class="row"><input id="fDest" type="text" placeholder="Ex.: Araçatuba" aria-autocomplete="list"><button type="button" class="ghost" data-pick="dest">No mapa</button></div>
+              <div class="row"><input id="fDest" type="text" placeholder="Ex.: Araçatuba" aria-autocomplete="list"><button type="button" class="ghost" data-gps="dest" title="Usar minha localização">GPS</button><button type="button" class="ghost" data-pick="dest">No mapa</button></div>
               <ul class="aclist" role="listbox" hidden></ul>
               <p class="hint" id="hDest"></p>
             </div>
@@ -1157,6 +1157,38 @@ function startPick(w) {
 }
 function endPick() { S.pick = null; $('#pickbar').hidden = true; $('#map').classList.remove('picking'); }
 $$('[data-pick]').forEach(b => b.addEventListener('click', () => startPick(b.dataset.pick)));
+
+// GPS como ponta da medida: ex. cabo cortado no meio do trecho e medido dali com o OTDR
+let gpsTrecho = null;
+function usarGpsTrecho(w) {
+  const hint = w === 'origin' ? $('#hOrig') : $('#hDest');
+  if (!('geolocation' in navigator)) { hint.className = 'hint warn'; hint.textContent = 'Este aparelho não informa a localização.'; return; }
+  if (gpsTrecho !== null) { try { navigator.geolocation.clearWatch(gpsTrecho); } catch (_) {} gpsTrecho = null; }
+  hint.className = 'hint'; hint.textContent = 'Buscando sua localização…';
+  const t0 = Date.now(); let melhor = null;
+  const parar = () => { if (gpsTrecho !== null) { try { navigator.geolocation.clearWatch(gpsTrecho); } catch (_) {} gpsTrecho = null; } };
+  gpsTrecho = navigator.geolocation.watchPosition(pos => {
+    const acc = Math.round(pos.coords.accuracy);
+    if (melhor === null || acc < melhor) {
+      melhor = acc;
+      const p = { lat: r6(pos.coords.latitude), lng: r6(pos.coords.longitude) };
+      const inp = inputOf(w); inp.value = 'Minha localização (GPS)';
+      S[w] = { name: 'Minha localização (GPS)', lat: p.lat, lng: p.lng, picked: true, gps: acc };
+      recalc();
+      const s = snapInfo(p);
+      hint.className = 'hint set';
+      hint.textContent = `GPS ±${acc} m · ${s ? 'a ' + fmtDist(s.d) + ' do cabo' + (s.nome ? ' (' + s.nome.slice(0, 40) + ')' : '') : 'sem cabo carregado'}${acc > 15 && Date.now() - t0 < 20000 ? ' · melhorando…' : ''}`;
+      if (!map.getBounds().pad(-0.2).contains([p.lat, p.lng])) map.setView([p.lat, p.lng], Math.max(map.getZoom(), 15));
+    }
+    if (acc <= 10 || Date.now() - t0 > 25000) parar();
+  }, err => {
+    parar();
+    hint.className = 'hint warn';
+    hint.textContent = err.code === 1 ? 'Localização bloqueada. Permita a localização para este site nas configurações do navegador.' : 'Não consegui pegar a localização agora. Tente de novo ou use “No mapa”.';
+  }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+  setTimeout(parar, 30000);
+}
+$$('[data-gps]').forEach(b => b.addEventListener('click', () => usarGpsTrecho(b.dataset.gps)));
 $('#pickCancel').addEventListener('click', endPick);
 map.on('click', e => {
   if (!S.pick) { if (S.detalhe) fecharDetalhe(); return; }
@@ -1972,7 +2004,7 @@ function setCriar(on) {
   $('#lgSenha').autocomplete = on ? 'new-password' : 'current-password';
 }
 // Versão do app: ao voltar para o app, confere se o site tem versão mais nova e oferece atualizar
-const APP_VERSAO = '2026-11-18e';
+const APP_VERSAO = '2026-11-19a';
 function checarVersao() {
   if (!navigator.onLine) return;
   fetch(location.pathname + '?versao=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => {
